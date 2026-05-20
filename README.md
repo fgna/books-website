@@ -1,4 +1,4 @@
-#Library Digitization
+# Library Digitization
 
 A Step-by-Step Guide by Freya Gnam & Claude
 
