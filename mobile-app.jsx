@@ -17,7 +17,8 @@ function MobileApp() {
 
   const books = useMemo(() => {
     const f = filters;
-    const q = (f.search || '').trim().toLowerCase();
+    const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const q = norm((f.search || '').trim());
     return baseBooks.filter(b => {
       if (f.family?.length && !f.family.includes(b.family)) return false;
       if (f.language?.length && !f.language.includes(b.language)) return false;
@@ -29,11 +30,11 @@ function MobileApp() {
       if (f.period?.length && !f.period.includes(b.period)) return false;
       if (f.genres?.length && !f.genres.some(g => b.genres.includes(g))) return false;
       if (f.keywords?.length) {
-        const bk = new Set(b.keywords.map(k => k.toLowerCase()));
-        if (!f.keywords.some(k => bk.has(k.toLowerCase()))) return false;
+        const bk = new Set(b.keywords.map(k => norm(k)));
+        if (!f.keywords.some(k => bk.has(norm(k)))) return false;
       }
       if (q) {
-        const hay = (b.title + ' ' + b.author + ' ' + b.keywords.join(' ') + ' ' + b.genres.join(' ') + ' ' + b.summary).toLowerCase();
+        const hay = norm(b.title + ' ' + b.author + ' ' + b.keywords.join(' ') + ' ' + b.genres.join(' ') + ' ' + b.summary);
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -78,7 +79,7 @@ function MobileApp() {
       minHeight: '100vh', display: 'flex', flexDirection: 'column',
       paddingTop: 'var(--safe-top)', paddingBottom: 'var(--safe-bot)',
     }}>
-      <MobileHeader lang={lang} setLang={setLang} L={L} />
+      <MobileHeader L={L} />
       <MobileSearchAndCount
         books={books} baseBooks={baseBooks} L={L}
         filters={filters} setFilters={setFilters}
@@ -113,6 +114,7 @@ function MobileApp() {
         onClose={() => setSelected(null)}
         lang={lang}
         L={L}
+        filters={filters}
         activeKeywords={filters.keywords || []}
         activeAuthors={filters.author || []}
         onAddKeyword={(k) => setFilters(f => {
@@ -125,38 +127,24 @@ function MobileApp() {
           if (cur.has(a)) cur.delete(a); else cur.add(a);
           return { ...f, author: Array.from(cur) };
         })}
+        onAddFilter={(key, val) => setFilters(f => {
+          const cur = new Set(f[key] || []);
+          if (cur.has(val)) cur.delete(val); else cur.add(val);
+          return { ...f, [key]: Array.from(cur) };
+        })}
       />
     </div>
   );
 }
 
-function MobileHeader({ lang, setLang, L }) {
+function MobileHeader({ L }) {
   return (
     <header style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      display: 'flex', alignItems: 'center',
       padding: '12px 16px 10px', borderBottom: '1px solid var(--ink)',
       background: 'var(--paper)', position: 'sticky', top: 0, zIndex: 30,
     }}>
       <div className="display" style={{ fontSize: 22 }}>{(window.LIB_CONFIG && window.LIB_CONFIG.name) || 'die Bibliothek'}</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ display: 'flex', border: '1px solid var(--ink)' }}>
-          {['de','en'].map((code, i) => (
-            <button
-              key={code}
-              onClick={() => setLang(code)}
-              style={{
-                padding: '4px 10px',
-                background: lang === code ? 'var(--ink)' : 'var(--paper)',
-                color: lang === code ? 'var(--paper)' : 'var(--ink)',
-                borderLeft: i === 0 ? 'none' : '1px solid var(--ink)',
-                fontFamily: 'var(--mono)', fontSize: 10, textTransform: 'uppercase',
-                letterSpacing: '0.18em',
-              }}>
-              {code}
-            </button>
-          ))}
-        </div>
-      </div>
     </header>
   );
 }
@@ -169,8 +157,8 @@ function MobileSearchAndCount({ books, baseBooks, L, filters, setFilters, active
     }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
         <div>
-          <span className="display" style={{ fontSize: 30 }}>{books.length}</span>
-          <span className="mono" style={{ marginLeft: 8 }}>{L.ofVolumes(baseBooks.length)}</span>
+          <span className="display" style={{ fontSize: 18 }}>{books.length}</span>
+          <span className="mono" style={{ marginLeft: 6 }}>{L.ofVolumes(baseBooks.length)}</span>
         </div>
         <button
           onClick={onOpenFilters}
@@ -213,19 +201,23 @@ function MobileSearchAndCount({ books, baseBooks, L, filters, setFilters, active
 }
 
 const SHORT_LABEL_KEYS_M = {
-  family: 'familyShort',
+  family:   'familyShort',
+  language: 'readLangShort',
+  period:   'periodShort',
+  country:  'countryShort',
 };
 
 function MobileGroupBar({ grouping, setGrouping, L }) {
-  const keys = ['family'];
+  const populated = window.LIB.populated || {};
+  const keys = ['family', 'language'];
+  if (populated.period)  keys.push('period');
+  if (populated.country) keys.push('country');
   return (
     <div style={{
       borderBottom: '1px solid var(--rule)', background: 'var(--paper)',
-      display: 'flex', alignItems: 'center', gap: 0,
       padding: '8px 16px',
     }}>
-      <span className="label" style={{ marginRight: 10, flexShrink: 0 }}>{L.groupBy}</span>
-      <div style={{ display: 'flex', border: '1px solid var(--ink)' }}>
+      <div style={{ display: 'flex', border: '1px solid var(--ink)', width: 'fit-content' }}>
         {keys.map((k, i) => (
           <button
             key={k}
@@ -234,6 +226,7 @@ function MobileGroupBar({ grouping, setGrouping, L }) {
               padding: '7px 14px',
               background: grouping === k ? 'var(--ink)' : 'var(--paper)',
               color: grouping === k ? 'var(--paper)' : 'var(--ink)',
+              border: 'none',
               borderLeft: i === 0 ? 'none' : '1px solid var(--ink)',
               fontFamily: 'var(--mono)', fontSize: 10, textTransform: 'uppercase',
               letterSpacing: '0.14em', whiteSpace: 'nowrap',
@@ -283,7 +276,7 @@ function ActiveFilterChips({ filters, setFilters, lang, L }) {
 
 // Horizontal carousel per group: header + scroll-snap row of bigger book cards.
 function GroupBand({ group, grouping, lang, onSelectBook }) {
-  const KIND_OF = { family: 'family', genre: 'genre' };
+  const KIND_OF = { family: 'family', genre: 'genre', language: 'language' };
   const kind = KIND_OF[grouping];
   const displayName = kind ? window.tr(kind, group.name, lang) : group.name;
 
@@ -303,11 +296,12 @@ function GroupBand({ group, grouping, lang, onSelectBook }) {
         }}>{group.items.length}</span>
       </header>
       <div style={{
-        display: 'flex', gap: 10,
+        display: 'flex', gap: 14,
         overflowX: 'auto', WebkitOverflowScrolling: 'touch',
         scrollSnapType: 'x mandatory',
-        padding: '2px 16px 14px',
+        padding: '2px 16px 16px',
         scrollbarWidth: 'none',
+        scrollPaddingLeft: 16,
       }}>
         <style>{`
           section > div::-webkit-scrollbar { display: none; }
@@ -326,36 +320,36 @@ function BookCard({ book, color, onClick }) {
     : '';
   return (
     <button onClick={onClick} style={{
-      width: 160, minWidth: 160, height: 220,
+      width: 200, minWidth: 200, height: 253,
       flexShrink: 0,
       background: color, color: 'var(--paper)',
-      padding: '14px 14px 12px',
+      padding: '16px 15px 13px',
       display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
       textAlign: 'left',
       scrollSnapAlign: 'start',
       cursor: 'pointer', overflow: 'hidden',
       border: 'none',
       borderRadius: 2,
-      boxShadow: '0 1px 0 rgba(0,0,0,0.04), 0 6px 16px -8px rgba(28,28,30,0.25)',
+      boxShadow: '0 1px 0 rgba(0,0,0,0.04), 0 8px 24px -8px rgba(28,28,30,0.3)',
     }}>
       <div style={{
-        fontFamily: 'var(--serif)', fontSize: 17, fontWeight: 500,
+        fontFamily: 'var(--serif)', fontSize: 20, fontWeight: 500,
         lineHeight: 1.15, letterSpacing: '-0.01em',
         color: 'var(--paper)',
-        display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 5,
+        display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 6,
         overflow: 'hidden',
         textWrap: 'pretty',
       }}>{book.title}</div>
       <div>
         <div style={{
-          fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 12,
+          fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 13,
           color: 'rgba(232,232,229,0.85)',
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
           marginBottom: 4,
         }}>{book.author}</div>
         {year && (
           <div style={{
-            fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.12em',
+            fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.12em',
             color: 'rgba(232,232,229,0.55)',
           }}>{year}</div>
         )}
@@ -383,14 +377,22 @@ function FilterSheet({ open, onClose, filters, setFilters, books, lang, L }) {
   const sections = [
     { id: 'family',   label: L.genreFamily,      values: facets.family,           kind: 'family' },
     { id: 'language', label: L.readingLanguage,  values: facets.language,         kind: 'language' },
-    { id: 'originalLanguage', label: L.originalLanguage, values: facets.originalLanguage.slice(0, 12), kind: 'language' },
+    { id: 'originalLanguage', label: L.originalLanguage, values: facets.originalLanguage.slice(0, 14), kind: 'language' },
     { id: 'era',      label: L.era,              values: facets.era,              kind: 'era' },
+    { id: 'genres',   label: 'Genre',            values: facets.genres.slice(0, 40), kind: 'genre' },
+    { id: 'author',   label: L.authors3plus,     values: facets.author.filter(f => f.count >= 3), kind: null },
   ];
-  if (populated.mood)    sections.push({ id: 'mood',    label: lang === 'de' ? 'Stimmung'     : 'Mood',    values: facets.mood.slice(0, 16),    kind: null });
-  if (populated.country) sections.push({ id: 'country', label: lang === 'de' ? 'Herkunftsland': 'Country', values: facets.country.slice(0, 12), kind: null });
-  if (populated.period)  sections.push({ id: 'period',  label: lang === 'de' ? 'Periode'      : 'Period',  values: facets.period,               kind: null });
-  sections.push({ id: 'genres', label: 'Genre', values: facets.genres.slice(0, 30), kind: 'genre' });
-  sections.push({ id: 'author', label: L.authors3plus, values: facets.author.filter(f => f.count >= 3), kind: null });
+  if (populated.read)    sections.push({ id: 'read',    label: lang === 'de' ? 'Gelesen'      : 'Read',    values: facets.read,               kind: null,
+    displayOf: (v) => v === true  ? (lang === 'de' ? 'Gelesen'    : 'Read')
+                    : v === false ? (lang === 'de' ? 'Ungelesen'  : 'Unread')
+                    :               (lang === 'de' ? 'Unbekannt'  : 'Unknown'),
+  });
+  if (populated.mood)    sections.push({ id: 'mood',    label: lang === 'de' ? 'Stimmung'     : 'Mood',    values: facets.mood.slice(0, 16),   kind: null });
+  if (populated.country) sections.push({ id: 'country', label: lang === 'de' ? 'Herkunftsland': 'Country', values: facets.country.slice(0, 12),kind: null });
+  if (populated.period)  sections.push({ id: 'period',  label: lang === 'de' ? 'Periode'      : 'Period',  values: facets.period,              kind: null });
+  if (populated.rating)  sections.push({ id: 'rating',  label: lang === 'de' ? 'Bewertung'    : 'Rating',  values: facets.rating,              kind: null,
+    displayOf: (v) => v != null ? '★'.repeat(Math.round(v)) + '☆'.repeat(Math.max(0, 5 - Math.round(v))) : '—',
+  });
 
   const isUnknown = (n) => /^(Unbekannt|Unknown|Andere|Other|Andere Autoren|Other authors|Andere Sprachen|Other languages|Unklassifiziert|Unclassified)$/i.test(String(n));
   const sortVals = (vals) => vals.slice().sort((a,b) => {
@@ -474,7 +476,7 @@ function FilterSheetSection({ section, active, onToggle, lang, L }) {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
           {list.map(v => {
             const isActive = active.includes(v.value);
-            const display = section.kind ? window.tr(section.kind, v.value, lang) : v.value;
+            const display = section.displayOf ? section.displayOf(v.value) : section.kind ? window.tr(section.kind, v.value, lang) : v.value;
             return (
               <button key={v.value} onClick={() => onToggle(v.value)} style={{
                 padding: '7px 11px',
@@ -505,126 +507,201 @@ function FilterSheetSection({ section, active, onToggle, lang, L }) {
   );
 }
 
-function BookDetailMobile({ book, onClose, lang, L, onAddKeyword, onAddAuthor, activeKeywords, activeAuthors }) {
+function BookDetailMobile({ book, onClose, lang, L, filters, onAddKeyword, onAddAuthor, onAddFilter, activeKeywords, activeAuthors }) {
   if (!book) return null;
   const activeSet = new Set((activeKeywords || []).map(k => k.toLowerCase()));
   const authorActive = (activeAuthors || []).includes(book.author);
   const trLang = (v) => window.tr('language', v, lang);
-  const trEra = (v) => window.tr('era', v, lang);
-  const genresTr = window.trGenres(book.genres, lang).join(' · ');
+  const isActive = (key, val) => ((filters || {})[key] || []).includes(val);
+  const toggleFilter = (key, val) => onAddFilter && onAddFilter(key, val);
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'var(--paper)',
-      zIndex: 70, overflowY: 'auto',
-      paddingTop: 'var(--safe-top)', paddingBottom: 'calc(var(--safe-bot) + 24px)',
-      animation: 'detailIn .22s ease-out',
+      position: 'fixed', inset: 0, zIndex: 70,
+      display: 'flex', flexDirection: 'column',
     }}>
       <style>{`
-        @keyframes detailIn { from { transform: translateY(8%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        .m-kw-chip { font-family: var(--mono); font-size: 10px; text-transform: capitalize;
-          padding: 4px 10px; border: 1px solid var(--rule); color: var(--ink-2);
-          background: transparent; letter-spacing: 0.02em;
+        @keyframes sheetDetailUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .m-kw-chip { font-family: var(--mono); font-size: 11px; text-transform: capitalize;
+          padding: 5px 11px; border: 1px solid var(--rule); color: var(--ink-2);
+          background: transparent; letter-spacing: 0.02em; cursor: pointer;
         }
         .m-kw-chip.active { background: var(--oxblood); color: var(--paper); border-color: var(--oxblood); }
-        .m-author-link { font-family: var(--serif); font-size: 17px; font-style: italic;
+        .m-author-link { font-family: var(--serif); font-size: 20px; font-style: italic;
           color: var(--ink-2); text-decoration: underline; text-decoration-color: var(--rule);
-          text-underline-offset: 3px; padding: 0;
+          text-underline-offset: 3px; padding: 0; cursor: pointer;
         }
         .m-author-link.active { color: var(--oxblood); text-decoration-color: var(--oxblood); font-weight: 500; }
       `}</style>
+
+      {/* Dim backdrop — tap to close */}
+      <div onClick={onClose} style={{ flex: 1, background: 'rgba(28,28,30,0.5)', cursor: 'pointer' }}/>
+
+      {/* Bottom sheet */}
       <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '14px 16px', borderBottom: '1px solid var(--rule)',
-        background: 'var(--paper)', position: 'sticky', top: 0, zIndex: 1,
+        background: 'var(--paper)', borderTop: '2px solid var(--ink)',
+        height: '62vh', display: 'flex', flexDirection: 'column',
+        animation: 'sheetDetailUp .25s ease-out',
+        paddingBottom: 'var(--safe-bot)',
       }}>
-        <button onClick={onClose} style={{
-          fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-2)',
-          letterSpacing: '0.14em', textTransform: 'uppercase',
-          padding: '6px 10px', border: '1px solid var(--rule)',
-        }}>← {lang === 'de' ? 'zurück' : 'back'}</button>
-        <div className="mono">{L.vol} №{String(book.id+1).padStart(3,'0')}</div>
-        {book.read === true ? (
-          <span style={{
-            fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.14em',
-            textTransform: 'uppercase', color: 'var(--paper)',
-            background: 'var(--oxblood)', padding: '3px 8px',
-          }}>{L.read}</span>
-        ) : <span style={{ width: 60 }}/>}
-      </div>
-      <div style={{ padding: '20px 18px' }}>
-        <h1 className="display" style={{ fontSize: 26, margin: '0 0 8px', textWrap: 'pretty' }}>{book.title}</h1>
-        <button className={'m-author-link' + (authorActive ? ' active' : '')}
-          onClick={() => onAddAuthor && onAddAuthor(book.author)}>
-          {book.author}
-        </button>
-        {book.yearPublished != null && (
-          <span style={{ color: 'var(--ink-3)', fontFamily: 'var(--serif)', fontSize: 17, fontStyle: 'italic', marginLeft: 6 }}>
-            · {book.yearPublished < 0 ? `${-book.yearPublished} BCE` : book.yearPublished}
-          </span>
-        )}
-        <hr style={{ border: 'none', borderTop: '1px solid var(--rule)', margin: '18px 0 14px' }}/>
-        <DetailField label={L.genre} value={genresTr} />
-        <DetailField label={L.language} value={trLang(book.language) + (book.translated ? ` ← ${trLang(book.originalLanguage)}` : '')} />
-        <DetailField label={L.era} value={trEra(book.era)} />
-        {book.country && <DetailField label={lang === 'de' ? 'Herkunftsland' : 'Country'} value={book.country} />}
-        {book.period && <DetailField label={lang === 'de' ? 'Periode' : 'Period'} value={book.period} />}
-        {book.mood && book.mood.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <div className="label" style={{ marginBottom: 6 }}>{lang === 'de' ? 'Stimmung' : 'Mood'}</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {book.mood.map(m => (
-                <span key={m} style={{
-                  fontFamily: 'var(--mono)', fontSize: 10, textTransform: 'uppercase',
-                  letterSpacing: '0.1em', padding: '3px 9px',
-                  background: (window.LIB.MOOD_COLOR && window.LIB.MOOD_COLOR[m]) || 'var(--ink-2)',
-                  color: 'var(--paper)',
-                }}>{m}</span>
-              ))}
+        {/* Header */}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '14px 18px 12px', borderBottom: '1px solid var(--rule)', flexShrink: 0,
+        }}>
+          <div className="mono">{L.vol} №{String(book.id+1).padStart(3,'0')}</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {book.read === true && (
+              <button onClick={() => toggleFilter('read', true)} style={{
+                fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.14em',
+                textTransform: 'uppercase', color: 'var(--paper)',
+                background: isActive('read', true) ? 'var(--oxblood-dk)' : 'var(--oxblood)',
+                border: 'none', padding: '3px 8px', cursor: 'pointer',
+              }}>{L.read}</button>
+            )}
+            {book.read === false && (
+              <button onClick={() => toggleFilter('read', false)} style={{
+                fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.14em',
+                textTransform: 'uppercase', color: isActive('read', false) ? 'var(--paper)' : 'var(--ink-2)',
+                background: isActive('read', false) ? 'var(--ink)' : 'none',
+                border: '1px solid var(--ink-3)', padding: '2px 7px', cursor: 'pointer',
+              }}>{lang === 'de' ? 'ungelesen' : 'unread'}</button>
+            )}
+            <button onClick={onClose} style={{
+              fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--ink-2)',
+              letterSpacing: '0.14em', padding: '6px 10px', border: '1px solid var(--rule)',
+            }}>✕</button>
+          </div>
+        </div>
+
+        {/* Scrollable content */}
+        <div style={{ overflowY: 'auto', padding: '18px 20px 28px', flex: 1 }}>
+          <h1 className="display" style={{ fontSize: 30, margin: '0 0 6px', textWrap: 'pretty', lineHeight: 1.1 }}>{book.title}</h1>
+          {book.originalTitle && (
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 14, fontStyle: 'italic', color: 'var(--ink-3)', marginBottom: 6 }}>
+              {L.originalTitle}: {book.originalTitle}
+            </div>
+          )}
+          <div style={{ marginBottom: 16 }}>
+            <button className={'m-author-link' + (authorActive ? ' active' : '')}
+              onClick={() => onAddAuthor && onAddAuthor(book.author)}>{book.author}</button>
+            {book.yearPublished != null && (
+              <span style={{ color: 'var(--ink-3)', fontFamily: 'var(--serif)', fontSize: 18, fontStyle: 'italic', marginLeft: 8 }}>
+                · {book.yearPublished < 0 ? `${-book.yearPublished} BCE` : book.yearPublished}
+              </span>
+            )}
+          </div>
+          <hr style={{ border: 'none', borderTop: '1px solid var(--rule)', margin: '0 0 14px' }}/>
+
+          {/* Genres — clickable chips */}
+          {book.genres.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div className="label" style={{ marginBottom: 6 }}>{L.genre}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                {book.genres.map(g => (
+                  <button key={g} className={'m-kw-chip' + (isActive('genres', g) ? ' active' : '')}
+                    onClick={() => toggleFilter('genres', g)}>{g}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Language */}
+          <div style={{ marginBottom: 12 }}>
+            <div className="label" style={{ marginBottom: 6 }}>{L.language}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              <button className={'m-kw-chip' + (isActive('language', book.language) ? ' active' : '')}
+                onClick={() => toggleFilter('language', book.language)}>{trLang(book.language)}</button>
+              {book.translated && (
+                <button className={'m-kw-chip' + (isActive('originalLanguage', book.originalLanguage) ? ' active' : '')}
+                  onClick={() => toggleFilter('originalLanguage', book.originalLanguage)}>
+                  ← {trLang(book.originalLanguage)}
+                </button>
+              )}
             </div>
           </div>
-        )}
-        {book.keywords.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <div className="label" style={{ marginBottom: 6 }}>{L.keywords}</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {book.keywords.map(k => (
-                <button key={k}
-                  className={'m-kw-chip' + (activeSet.has(k.toLowerCase()) ? ' active' : '')}
-                  onClick={() => onAddKeyword && onAddKeyword(k)}>{k}</button>
-              ))}
+
+          {/* Era */}
+          <div style={{ marginBottom: 12 }}>
+            <div className="label" style={{ marginBottom: 6 }}>{L.era}</div>
+            <button className={'m-kw-chip' + (isActive('era', book.era) ? ' active' : '')}
+              onClick={() => toggleFilter('era', book.era)}>{book.era}</button>
+          </div>
+
+          {book.mood && book.mood.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div className="label" style={{ marginBottom: 6 }}>{lang === 'de' ? 'Stimmung' : 'Mood'}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                {book.mood.map(m => (
+                  <button key={m} className={'m-kw-chip' + (isActive('mood', m) ? ' active' : '')}
+                    onClick={() => toggleFilter('mood', m)}>{m}</button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-        {book.mainIdea && (
-          <div style={{ marginTop: 18 }}>
-            <div className="label" style={{ marginBottom: 6 }}>{L.mainIdea}</div>
-            <p style={{
-              fontFamily: 'var(--serif)', fontSize: 17, lineHeight: 1.5, color: 'var(--ink)',
-              margin: 0, textWrap: 'pretty', borderLeft: '2px solid var(--oxblood)',
-              paddingLeft: 12, fontStyle: 'italic',
-            }}>{lang === 'en' ? (book.mainIdeaEn || book.mainIdea) : book.mainIdea}</p>
-          </div>
-        )}
-        {book.summary && (
-          <div style={{ marginTop: 18 }}>
-            <div className="label" style={{ marginBottom: 6 }}>{L.summary}</div>
-            <p style={{ fontFamily: 'var(--serif)', fontSize: 16, lineHeight: 1.55, color: 'var(--ink)', margin: 0, textWrap: 'pretty' }}>{lang === 'en' ? (book.summaryEn || book.summary) : book.summary}</p>
-          </div>
-        )}
+          )}
+          {book.period && (
+            <div style={{ marginBottom: 12 }}>
+              <div className="label" style={{ marginBottom: 6 }}>{lang === 'de' ? 'Periode' : 'Period'}</div>
+              <button className={'m-kw-chip' + (isActive('period', book.period) ? ' active' : '')}
+                onClick={() => toggleFilter('period', book.period)}>{book.period}</button>
+            </div>
+          )}
+          {book.country && (
+            <div style={{ marginBottom: 12 }}>
+              <div className="label" style={{ marginBottom: 6 }}>{lang === 'de' ? 'Herkunftsland' : 'Country'}</div>
+              <button className={'m-kw-chip' + (isActive('country', book.country) ? ' active' : '')}
+                onClick={() => toggleFilter('country', book.country)}>{book.country}</button>
+            </div>
+          )}
+          {book.series && (
+            <div style={{ marginBottom: 12 }}>
+              <div className="label" style={{ marginBottom: 6 }}>{lang === 'de' ? 'Reihe' : 'Series'}</div>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{book.series}</div>
+            </div>
+          )}
+          {book.rating != null && (
+            <div style={{ marginBottom: 12 }}>
+              <div className="label" style={{ marginBottom: 4 }}>{lang === 'de' ? 'Bewertung' : 'Rating'}</div>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--oxblood)', letterSpacing: '0.1em' }}>
+                {'★'.repeat(Math.round(book.rating))}<span style={{ color: 'var(--ink-4)' }}>{'★'.repeat(Math.max(0, 5 - Math.round(book.rating)))}</span>
+              </div>
+            </div>
+          )}
+          {book.keywords.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div className="label" style={{ marginBottom: 6 }}>{L.keywords}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                {book.keywords.map(k => (
+                  <button key={k}
+                    className={'m-kw-chip' + (activeSet.has(k.toLowerCase()) ? ' active' : '')}
+                    onClick={() => onAddKeyword && onAddKeyword(k)}>{k}</button>
+                ))}
+              </div>
+            </div>
+          )}
+          {book.mainIdea && (
+            <div style={{ marginTop: 18 }}>
+              <div className="label" style={{ marginBottom: 6 }}>{L.mainIdea}</div>
+              <p style={{
+                fontFamily: 'var(--serif)', fontSize: 18, lineHeight: 1.5, color: 'var(--ink)',
+                margin: 0, textWrap: 'pretty', borderLeft: '2px solid var(--oxblood)',
+                paddingLeft: 14, fontStyle: 'italic',
+              }}>{lang === 'en' ? (book.mainIdeaEn || book.mainIdea) : book.mainIdea}</p>
+            </div>
+          )}
+          {book.summary && (
+            <div style={{ marginTop: 18 }}>
+              <div className="label" style={{ marginBottom: 6 }}>{L.summary}</div>
+              <p style={{ fontFamily: 'var(--serif)', fontSize: 17, lineHeight: 1.6, color: 'var(--ink)', margin: 0, textWrap: 'pretty' }}>
+                {lang === 'en' ? (book.summaryEn || book.summary) : book.summary}
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function DetailField({ label, value }) {
-  if (!value) return null;
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <div className="label" style={{ marginBottom: 2 }}>{label}</div>
-      <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{value}</div>
-    </div>
-  );
-}
 
 function boot() {
   const root = ReactDOM.createRoot(document.getElementById('app'));

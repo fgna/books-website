@@ -4,8 +4,14 @@ A personal book catalog stored as a JSON file, populated from photos of physical
 
 ## Repository Structure
 
-- `books.json` — the main database; each entry follows the schema below
+- `books.json` — copy of the book database from `my-books`; update from there when books change
 - `CLAUDE.md` — this file
+- `index.html`, `mobile.html` — desktop and mobile entry points
+- `app.jsx`, `views.jsx`, `tweaks-panel.jsx` — desktop web app components
+- `mobile-app.jsx` — mobile web app component
+- `data.jsx` — data transformation and genre definitions (FAMILY_DEFS)
+- `i18n.jsx` — translations
+- `config.js` — library name and language configuration
 
 ## Book Entry Schema
 
@@ -46,7 +52,7 @@ A personal book catalog stored as a JSON file, populated from photos of physical
 Field **keys** are in English (e.g. `"genre"`, `"language"`). Field **values** for controlled-vocabulary fields are in German.
 The UI supports DE/EN display; data values display as-is in both modes
 
-When adding a new book, use the genre/language values already present in `books.json`. Refer to the genre families in `library-digital-twin/project/data.jsx` (FAMILY_DEFS) for the canonical German genre vocabulary.
+When adding a new book, use the genre/language values already present in `books.json`. Refer to the genre families in `data.jsx` (FAMILY_DEFS) for the canonical German genre vocabulary.
 
 ## Conventions
 

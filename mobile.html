@@ -72,6 +72,10 @@
   <script src="config.js"></script>
   <script>
     (function() {
+      // Redirect desktop browsers to the full view
+      if (!/Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+        window.location.replace('index.html');
+      }
       var name = (window.LIB_CONFIG && window.LIB_CONFIG.name) || 'die Bibliothek';
       document.title = name;
       var el = document.querySelector('.boot-mark');

@@ -3,7 +3,7 @@
 
 window.LIB_CONFIG = {
   // UI language: 'de' (German) or 'en' (English)
-  lang: 'en',
+  lang: 'de',
   // Display name shown in the header and boot screen
-  name: 'My Library',
+  name: 'Freyas Bibliothek',
 };

@@ -64,7 +64,8 @@ function App() {
   // Apply filters
   const books = useMemo(() => {
     const f = filters;
-    const q = (f.search || '').trim().toLowerCase();
+    const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const q = norm((f.search || '').trim());
     return baseBooks.filter(b => {
       if (f.family?.length && !f.family.includes(b.family)) return false;
       if (f.language?.length && !f.language.includes(b.language)) return false;
@@ -78,11 +79,11 @@ function App() {
       if (f.read?.length && !f.read.includes(b.read)) return false;
       if (f.genres?.length && !f.genres.some(g => b.genres.includes(g))) return false;
       if (f.keywords?.length) {
-        const bk = new Set(b.keywords.map(k => k.toLowerCase()));
-        if (!f.keywords.some(k => bk.has(k.toLowerCase()))) return false;
+        const bk = new Set(b.keywords.map(k => norm(k)));
+        if (!f.keywords.some(k => bk.has(norm(k)))) return false;
       }
       if (q) {
-        const hay = (b.title + ' ' + b.author + ' ' + b.keywords.join(' ') + ' ' + b.genres.join(' ') + ' ' + b.summary).toLowerCase();
+        const hay = norm(b.title + ' ' + b.author + ' ' + b.keywords.join(' ') + ' ' + b.genres.join(' ') + ' ' + b.summary);
         if (!hay.includes(q)) return false;
       }
       return true;
