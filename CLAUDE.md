@@ -30,7 +30,7 @@ Only `en` and `de` are supported for the UI. MY_LANGUAGE can be any language reg
 - `books.json` — the main database; each entry follows the schema below. Created automatically on first use.
 - `CLAUDE.md` — this file
 
-If this is a `books-website` checkout, the design files (`index.html`, `app.jsx`, etc.) also live here. `books.json` is the data layer that feeds the website — see *Providing books.json* below.
+If this is a `books-website` checkout, the design files (`index.html`, `app.jsx`, etc.) also live here. `books.json` is the data layer that feeds the website.
 
 ## How to Add Books
 
@@ -40,6 +40,8 @@ If this is a `books-website` checkout, the design files (`index.html`, `app.jsx`
 4. If a book cannot be identified from the photo, Claude will ask for clarification.
 
 When committing, ask Claude: *"Commit and push the changes"*.
+
+Do not commit `books.json` when working in a `books-website` checkout — it is provided at runtime via Docker.
 
 ## Book Entry Schema
 
@@ -98,13 +100,3 @@ When adding a new book, use genre and language values already present in `books.
 ## Filling in Missing Information
 
 `missing-info.md` tracks entries where `year_published` or `author` is unknown. Whenever new information becomes available — from user input, a photo, or context in the conversation — Claude must immediately update the relevant fields in `books.json` and remove the corresponding rows from `missing-info.md`. The same applies to any other `null` field (`main_idea`, `read`) if the user provides the information.
-
-## Providing books.json (books-website only)
-
-If you are working in a `books-website` checkout, `books.json` is not the source of truth here — it lives in a separate `my-books`-style repository. To update it:
-
-```bash
-cp ../my-books/books.json ./books.json
-```
-
-When running via Docker, `books.json` is mounted directly from that repository and never needs to be copied manually. Do not commit an empty `books.json`.
