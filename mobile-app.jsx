@@ -2,7 +2,7 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
 function MobileApp() {
-  const [lang, setLang] = useState(() => localStorage.getItem('lib.lang') || (window.LIB_CONFIG && window.LIB_CONFIG.lang) || 'en');
+  const [lang, setLang] = useState(() => (window.LIB_CONFIG && window.LIB_CONFIG.lang) || localStorage.getItem('lib.lang') || 'en');
   const [grouping, setGrouping] = useState('family');
   const [filters, setFilters] = useState({ search: '' });
   const [selected, setSelected] = useState(null);
