@@ -37,14 +37,13 @@ const PALETTES = {
 
 function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const lang = (window.LIB_CONFIG && window.LIB_CONFIG.lang) || 'de';
+  const lang = (window.LIB_CONFIG && window.LIB_CONFIG.lang) || 'en';
   const [showRail, setShowRail] = useState(false);
   const [grouping, setGrouping] = useState('family');
   const [filters, setFilters] = useState({ search: '' });
   const [selected, setSelected] = useState(null);
   const L = window.T(lang);
 
-  // Apply palette → CSS vars
   useEffect(() => {
     const p = PALETTES[t.palette] || PALETTES["Cool grey"];
     const root = document.documentElement.style;
@@ -61,7 +60,6 @@ function App() {
 
   const baseBooks = window.LIB.books;
 
-  // Apply filters
   const books = useMemo(() => {
     const f = filters;
     const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -105,66 +103,28 @@ function App() {
           <StatBar books={books} baseBooks={baseBooks} grouping={grouping} setGrouping={setGrouping} lang={lang} L={L} showRail={showRail} onToggleRail={() => setShowRail(v => !v)} />
           <ActiveFilters filters={filters} setFilters={setFilters} lang={lang} L={L} />
           <div style={{ flex: 1, padding: 0, minHeight: 600, background: 'var(--paper-2)', borderBottom: '1px solid var(--ink)', overflow: 'auto' }}>
-            <CarouselView
-              books={books}
-              grouping={grouping}
-              onSelectBook={setSelected}
-              lang={lang}
-              L={L}
-            />
+            <CarouselView books={books} grouping={grouping} onSelectBook={setSelected} lang={lang} L={L} />
           </div>
         </main>
         <BookDetail
           book={selected}
-        onClose={() => setSelected(null)}
-        activeKeywords={filters.keywords || []}
-        activeAuthors={filters.author || []}
-        filters={filters}
-        lang={lang}
-        L={L}
-        onAddKeyword={(k) => {
-          setFilters(f => {
-            const cur = new Set(f.keywords || []);
-            if (cur.has(k)) cur.delete(k); else cur.add(k);
-            return { ...f, keywords: Array.from(cur) };
-          });
-        }}
-        onAddAuthor={(a) => {
-          setFilters(f => {
-            const cur = new Set(f.author || []);
-            if (cur.has(a)) cur.delete(a); else cur.add(a);
-            return { ...f, author: Array.from(cur) };
-          });
-        }}
-        onAddFilter={(key, val) => {
-          setFilters(f => {
-            const cur = new Set(f[key] || []);
-            if (cur.has(val)) cur.delete(val); else cur.add(val);
-            return { ...f, [key]: Array.from(cur) };
-          });
-        }}
+          onClose={() => setSelected(null)}
+          activeKeywords={filters.keywords || []}
+          activeAuthors={filters.author || []}
+          filters={filters}
+          lang={lang}
+          L={L}
+          onAddKeyword={(k) => setFilters(f => { const cur = new Set(f.keywords || []); if (cur.has(k)) cur.delete(k); else cur.add(k); return { ...f, keywords: Array.from(cur) }; })}
+          onAddAuthor={(a) => setFilters(f => { const cur = new Set(f.author || []); if (cur.has(a)) cur.delete(a); else cur.add(a); return { ...f, author: Array.from(cur) }; })}
+          onAddFilter={(key, val) => setFilters(f => { const cur = new Set(f[key] || []); if (cur.has(val)) cur.delete(val); else cur.add(val); return { ...f, [key]: Array.from(cur) }; })}
         />
       </div>
       <TweaksPanel>
         <TweakSection label="Theme" />
-        <TweakSelect
-          label="Palette"
-          value={t.palette}
-          options={Object.keys(PALETTES)}
-          onChange={(v) => setTweak('palette', v)}
-        />
-        <TweakColor
-          label="Accent"
-          value={t.accent}
-          options={['#8a3324','#2d3a5a','#3a5d5a','#8e7d5c','#6b6843','#4a2a3a']}
-          onChange={(v) => setTweak('accent', v)}
-        />
+        <TweakSelect label="Palette" value={t.palette} options={Object.keys(PALETTES)} onChange={(v) => setTweak('palette', v)} />
+        <TweakColor label="Accent" value={t.accent} options={['#8a3324','#2d3a5a','#3a5d5a','#8e7d5c','#6b6843','#4a2a3a']} onChange={(v) => setTweak('accent', v)} />
         <TweakSection label="Chrome" />
-        <TweakToggle
-          label="Footer bar"
-          value={t.showFootnote}
-          onChange={(v) => setTweak('showFootnote', v)}
-        />
+        <TweakToggle label="Footer bar" value={t.showFootnote} onChange={(v) => setTweak('showFootnote', v)} />
       </TweaksPanel>
     </div>
   );
@@ -177,31 +137,16 @@ function Header({ L }) {
       padding: '14px 24px 12px', borderBottom: '1px solid var(--ink)',
       background: 'var(--paper)',
     }}>
-      <div className="display" style={{ fontSize: 22 }}>{(window.LIB_CONFIG && window.LIB_CONFIG.name) || 'die Bibliothek'}</div>
+      <div className="display" style={{ fontSize: 22 }}>{(window.LIB_CONFIG && window.LIB_CONFIG.name) || 'the Library'}</div>
     </header>
-  );
-}
-
-function Footnote({ L }) {
-  return (
-    <div style={{
-      padding: '10px 24px', display: 'flex', justifyContent: 'space-between',
-      background: 'var(--ink)', color: 'var(--paper-3)',
-      fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase',
-    }}>
-      <span>{L.footnote}</span>
-      <span>{L.esc}</span>
-    </div>
   );
 }
 
 function boot() {
   const root = ReactDOM.createRoot(document.getElementById('app'));
   root.render(<App />);
-  const boot = document.getElementById('boot');
-  if (boot) {
-    setTimeout(() => { boot.classList.add('hidden'); setTimeout(() => boot.remove(), 400); }, 200);
-  }
+  const bootEl = document.getElementById('boot');
+  if (bootEl) setTimeout(() => { bootEl.classList.add('hidden'); setTimeout(() => bootEl.remove(), 400); }, 200);
 }
 
 if (window.LIB) boot();
