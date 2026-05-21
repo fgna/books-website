@@ -13,6 +13,18 @@ A personal book catalog stored as a JSON file, populated from photos of physical
 - `i18n.jsx` — translations
 - `config.js` — library name and language configuration
 
+## Providing books.json
+
+`books.json` is not edited here. The source of truth is the `my-books` repository. To update it:
+
+```bash
+cp ../my-books/books.json ./books.json
+```
+
+When running via Docker, `books.json` is mounted directly from `my-books` and never needs to be copied manually.
+
+Do not commit a stale or empty `books.json` — if it is empty, the app will load with no books.
+
 ## Book Entry Schema
 
 ```json

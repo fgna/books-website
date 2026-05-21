@@ -21,7 +21,7 @@ If you do not already have one, go to github.com and sign up for a free account.
 
 3\.  Open Claude Code on the web
 
-Go to claude.ai/code and sign in. Claude Code is Anthropic's AI coding assistant — it can read and write files in your repository directly. You’ll need a Claude Pro subscription.
+Go to claude.ai/code and sign in. Claude Code is Anthropic's AI coding assistant — it can read and write files in your repository directly. You'll need a Claude Pro subscription.
 
 4\.  Connect your GitHub repository
 
@@ -124,20 +124,26 @@ Once your books.json is populated you can browse your library in a visual web ap
 
 **Option A — Clone the ready-made website repository**
 
-The repository github.com/fgna/books-website contains a complete, pre-built library browser. Clone it and point it at your books.json:
+The repository github.com/fgna/books-website contains a complete, pre-built library browser.
 
-* Fork or clone fgna/books-website on GitHub. 
-* Copy your books.json into the project (or symlink it). 
-* **Open library-digital-twin/project/index.html in a browser —** no build step needed. 
-* Edit config.js to set your library name.
+1. Fork or clone `fgna/books-website` on GitHub.
+2. Copy your `books.json` from your `my-books` repository into the `books-website` folder:
 
-window.LIB\_CONFIG \= {
+```
+cp ../my-books/books.json ./books.json
+```
 
+3. Open `index.html` in a browser — no build step needed.
+4. Edit `config.js` to set your library name and language:
+
+```js
+window.LIB_CONFIG = {
   lang: 'en',          // 'en' or 'de'
-
   name: 'My Library',  // shown in the header
-
 };
+```
+
+**Keeping books.json up to date:** whenever you add books to your `my-books` repository, copy the updated `books.json` into `books-website` again before opening the app. You can also run the app via Docker so that `books.json` is read directly from `my-books` without copying — see the Docker instructions in the repository.
 
 **Option B — Build your own with Claude Code**
 
