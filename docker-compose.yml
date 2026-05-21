@@ -1,0 +1,13 @@
+services:
+  library:
+    build: .
+    ports:
+      - "8080:80"
+    environment:
+      LIB_LANG: en          # 'en' or 'de'
+      # LIB_NAME: My Library  # optional; defaults to "the Library" (en) or "die Bibliothek" (de)
+    volumes:
+      # Default: books.json in sibling my-books directory.
+      # Override: BOOKS_JSON=./books.json docker compose up
+      - ${BOOKS_JSON:-../my-books/books.json}:/usr/share/nginx/html/books.json:ro
+    restart: unless-stopped
