@@ -25,7 +25,7 @@ If you do not already have one, go to github.com and sign up for a free account.
 
 3\. Open Claude Code on the web
 
-Go to claude.ai/code and sign in. Claude Code is Anthropic’s AI coding assistant — it can read and write files in your repository directly. You’ll need a Claude Pro subscription.
+Go to claude.ai/code and sign in. Claude Code is Anthropic's AI coding assistant — it can read and write files in your repository directly. You'll need a Claude Pro subscription.
 
 4\. Connect your GitHub repository
 
@@ -114,7 +114,7 @@ environment:
   # LIB_NAME: My Library   # optional — leave blank to use the default name
 ```
 
-The library name defaults to **“the Library”** (en) or **“die Bibliothek”** (de). Set `LIB_NAME` to use a custom name.
+The library name defaults to **"the Library"** (en) or **"die Bibliothek"** (de). Set `LIB_NAME` to use a custom name.
 
 If your `books.json` is not in `../my-books/books.json`, set `BOOKS_JSON`:
 
@@ -162,11 +162,11 @@ Repeat step 2 each time you add books.
 
 **Adding more books later**
 
-Open a new Claude Code session on the same repository, take more photos, and repeat steps 6–9. Claude remembers the schema from CLAUDE.md and appends to the existing list.
+Open a new Claude Code session on the same repository, take more photos, and repeat Part 4 above (photograph, share, review, commit).
 
 **Tracking what you have read**
 
-Tell Claude in chat: “I have read Kafka on the Shore” — it will set `read: true` for that entry immediately.
+Tell Claude in chat: "I have read Kafka on the Shore" — it will set `read: true` for that entry immediately.
 
 **Exporting your list**
 
