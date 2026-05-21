@@ -4,13 +4,24 @@ A personal book catalog stored as a JSON file, populated from photos of physical
 
 ## Configuration
 
-Set your preferred language for field values (genre names, language names, summaries) by editing this line:
+There are two separate language settings:
+
+**1. Content language** — the language used for data values (genre names, language names, summaries):
 
 ```
 MY_LANGUAGE = German
 ```
 
-Change `German` to your language (e.g. `English`, `French`, `Spanish`). All genre values, language names, and summaries will be written in that language. Field **keys** always stay in English.
+Change `German` to any language (e.g. `English`, `French`, `Spanish`). Field **keys** always stay in English.
+
+**2. UI language** — the language of the web app interface (labels, buttons, filter names). Set in `docker-compose.yml`:
+
+```yaml
+environment:
+  LIB_LANG: de    # 'en' (English) or 'de' (German)
+```
+
+Only `en` and `de` are supported for the UI. MY_LANGUAGE can be any language regardless of the UI setting.
 
 ---
 
