@@ -1,9 +1,6 @@
-// Library Digital Twin — configuration
-// Edit this file to customize the app. No build step needed.
-
+// When using Docker, this file is generated from LIB_LANG and LIB_NAME env vars.
+// Edit here only when opening index.html directly in a browser (no Docker).
 window.LIB_CONFIG = {
-  // UI language: 'de' (German) or 'en' (English)
-  lang: 'de',
-  // Display name shown in the header and boot screen
-  name: 'Freyas Bibliothek',
+  lang: 'en',           // 'en' or 'de'
+  name: 'the Library',  // shown in the header
 };
