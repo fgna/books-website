@@ -3,6 +3,13 @@
   if (!window.AndroidBookSource) return;
 
   const native = window.AndroidBookSource;
+  const nativeLanguage = (() => {
+    try { return String(native.getLanguage ? native.getLanguage() : '').toLowerCase(); }
+    catch (_) { return ''; }
+  })();
+  if ((nativeLanguage === 'en' || nativeLanguage === 'de') && window.LIB_CONFIG) {
+    window.LIB_CONFIG.lang = nativeLanguage;
+  }
 
   function isGerman() {
     return ((window.LIB_CONFIG && window.LIB_CONFIG.lang) || 'en') === 'de';
@@ -10,14 +17,14 @@
 
   function labels() {
     return isGerman() ? {
-      settings: 'Einstellungen', source: 'Datenquelle', imported: 'Lokaler Katalog', remote: 'Remote-Synchronisation',
+      settings: 'Einstellungen', language: 'Sprache', source: 'Datenquelle', imported: 'Lokaler Katalog', remote: 'Remote-Synchronisation',
       importJson: 'JSON importieren', exportJson: 'JSON exportieren', useRemote: 'Remote-Daten wieder verwenden', close: 'Schließen',
       localAi: 'Lokale Bucherkennung', importModel: 'Gemma .litertlm importieren', noModel: 'Kein Modell importiert',
       scan: 'Buch fotografieren', openingCamera: 'Kamera wird geöffnet…', scanning: 'Buch wird lokal erkannt…', copying: 'Modell wird kopiert…', ready: 'Modell bereit',
       review: 'Erkanntes Buch prüfen', title: 'Titel', author: 'Autor', confidence: 'Sicherheit', add: 'Zur Bibliothek hinzufügen', cancel: 'Abbrechen',
       duplicate: 'Ein ähnlicher Eintrag existiert bereits. Trotzdem hinzufügen?', saved: 'Buch hinzugefügt.', modelRequired: 'Bitte zuerst ein lokales .litertlm-Modell importieren.'
     } : {
-      settings: 'Settings', source: 'Data source', imported: 'Local catalog', remote: 'Remote sync',
+      settings: 'Settings', language: 'Language', source: 'Data source', imported: 'Local catalog', remote: 'Remote sync',
       importJson: 'Import JSON', exportJson: 'Export JSON', useRemote: 'Use remote data again', close: 'Close',
       localAi: 'Local book recognition', importModel: 'Import Gemma .litertlm', noModel: 'No model imported',
       scan: 'Photograph book', openingCamera: 'Opening camera…', scanning: 'Recognizing book locally…', copying: 'Copying model…', ready: 'Model ready',
@@ -49,12 +56,18 @@
     const imported = !!native.isManualOverride();
     const hasModel = !!native.hasLocalBookModel();
     const modelSize = hasModel ? native.getLocalBookModelSize() : '';
+    const currentLang = isGerman() ? 'de' : 'en';
     const { overlay, sheet } = sheetBase('android-settings-overlay');
 
     sheet.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
         <div class="display" style="font-size:24px">${L.settings}</div>
         <button id="android-settings-close" style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;padding:8px">${L.close}</button>
+      </div>
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin-bottom:8px">${L.language}</div>
+      <div style="display:flex;border:1px solid var(--ink);width:fit-content;margin-bottom:24px">
+        <button id="android-lang-en" style="padding:8px 16px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;background:${currentLang === 'en' ? 'var(--ink)' : 'var(--paper)'};color:${currentLang === 'en' ? 'var(--paper)' : 'var(--ink)'}">EN</button>
+        <button id="android-lang-de" style="padding:8px 16px;border-left:1px solid var(--ink);font-family:var(--mono);font-size:10px;letter-spacing:.12em;background:${currentLang === 'de' ? 'var(--ink)' : 'var(--paper)'};color:${currentLang === 'de' ? 'var(--paper)' : 'var(--ink)'}">DE</button>
       </div>
       <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin-bottom:5px">${L.source}</div>
       <div style="font-family:var(--serif);font-size:17px;margin-bottom:20px">${imported ? L.imported : L.remote}</div>
@@ -69,6 +82,8 @@
     const close = () => overlay.remove();
     overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
     sheet.querySelector('#android-settings-close').onclick = close;
+    sheet.querySelector('#android-lang-en').onclick = () => { if (currentLang !== 'en') native.setLanguage('en'); };
+    sheet.querySelector('#android-lang-de').onclick = () => { if (currentLang !== 'de') native.setLanguage('de'); };
     sheet.querySelector('#android-import-json').onclick = () => { close(); native.importBooks(); };
     sheet.querySelector('#android-export-json').onclick = () => { close(); native.exportBooks(); };
     sheet.querySelector('#android-import-model').onclick = () => { close(); native.importLocalBookModel(); };
