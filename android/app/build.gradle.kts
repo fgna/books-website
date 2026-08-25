@@ -3,6 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val booksUrl = providers.gradleProperty("booksUrl").orElse("").get()
+
 android {
     namespace = "de.fgna.library"
     compileSdk = 34
@@ -13,6 +15,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "BOOKS_URL", "\"${booksUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 
     buildFeatures {
@@ -45,5 +48,5 @@ android {
 }
 
 dependencies {
-    implementation("androidx.webkit:webkit:1.12.1")
+    implementation("androidx.webkit:webkit:1.11.0")
 }
