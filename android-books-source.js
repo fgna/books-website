@@ -35,7 +35,7 @@
       return originalFetch(input, init);
     }
 
-    const configured = window.LIB_CONFIG && window.LIB_CONFIG.booksUrl;
+    const configured = (window.LIB_CONFIG && window.LIB_CONFIG.booksUrl) || native.getDefaultBooksUrl();
     if (!configured || configured === 'books.json') {
       return originalFetch(input, init);
     }
