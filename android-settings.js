@@ -13,14 +13,14 @@
       settings: 'Einstellungen', source: 'Datenquelle', imported: 'Lokaler Katalog', remote: 'Remote-Synchronisation',
       importJson: 'JSON importieren', exportJson: 'JSON exportieren', useRemote: 'Remote-Daten wieder verwenden', close: 'Schließen',
       localAi: 'Lokale Bucherkennung', importModel: 'Gemma .litertlm importieren', noModel: 'Kein Modell importiert',
-      scan: 'Buch fotografieren', scanning: 'Buch wird lokal erkannt…', copying: 'Modell wird kopiert…', ready: 'Modell bereit',
+      scan: 'Buch fotografieren', openingCamera: 'Kamera wird geöffnet…', scanning: 'Buch wird lokal erkannt…', copying: 'Modell wird kopiert…', ready: 'Modell bereit',
       review: 'Erkanntes Buch prüfen', title: 'Titel', author: 'Autor', confidence: 'Sicherheit', add: 'Zur Bibliothek hinzufügen', cancel: 'Abbrechen',
       duplicate: 'Ein ähnlicher Eintrag existiert bereits. Trotzdem hinzufügen?', saved: 'Buch hinzugefügt.', modelRequired: 'Bitte zuerst ein lokales .litertlm-Modell importieren.'
     } : {
       settings: 'Settings', source: 'Data source', imported: 'Local catalog', remote: 'Remote sync',
       importJson: 'Import JSON', exportJson: 'Export JSON', useRemote: 'Use remote data again', close: 'Close',
       localAi: 'Local book recognition', importModel: 'Import Gemma .litertlm', noModel: 'No model imported',
-      scan: 'Photograph book', scanning: 'Recognizing book locally…', copying: 'Copying model…', ready: 'Model ready',
+      scan: 'Photograph book', openingCamera: 'Opening camera…', scanning: 'Recognizing book locally…', copying: 'Copying model…', ready: 'Model ready',
       review: 'Review recognized book', title: 'Title', author: 'Author', confidence: 'Confidence', add: 'Add to library', cancel: 'Cancel',
       duplicate: 'A similar entry already exists. Add it anyway?', saved: 'Book added.', modelRequired: 'Import a local .litertlm model first.'
     };
@@ -90,14 +90,33 @@
     if (busy) busy.remove();
   }
 
-  function startScan() {
+  function startScan(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
     const L = labels();
-    if (!native.hasLocalBookModel()) {
-      alert(L.modelRequired);
+    let hasModel = false;
+    try {
+      hasModel = !!native.hasLocalBookModel();
+    } catch (e) {
+      console.error('Local model check failed', e);
       openSettings();
       return;
     }
-    native.captureBook();
+    if (!hasModel) {
+      openSettings();
+      return;
+    }
+    showBusy(L.openingCamera);
+    try {
+      native.captureBook();
+      window.setTimeout(removeBusy, 1200);
+    } catch (e) {
+      removeBusy();
+      console.error('Camera launch failed', e);
+      openSettings();
+    }
   }
 
   function openReview(result) {
@@ -124,14 +143,14 @@
       if (!title) return;
       let saved;
       try { saved = JSON.parse(native.addRecognizedBook(title, author, false)); }
-      catch (e) { alert(String(e)); return; }
+      catch (e) { console.error(e); return; }
       if (saved.duplicate) {
         const details = [saved.existingTitle, saved.existingAuthor].filter(Boolean).join(' · ');
         if (!confirm(`${L.duplicate}${details ? `\n\n${details}` : ''}`)) return;
         saved = JSON.parse(native.addRecognizedBook(title, author, true));
       }
       if (!saved.ok) {
-        alert(saved.error || 'Save failed');
+        console.error(saved.error || 'Save failed');
         return;
       }
       close();
@@ -144,8 +163,8 @@
     if (status === 'copying') showBusy(L.copying);
     else {
       removeBusy();
-      if (status === 'error') alert(detail || 'Model import failed');
-      if (status === 'ready') alert(`${L.ready}${detail ? ` · ${detail}` : ''}`);
+      if (status === 'error') console.error(detail || 'Model import failed');
+      if (status === 'ready') console.info(`${L.ready}${detail ? ` · ${detail}` : ''}`);
     }
   };
 
@@ -155,13 +174,13 @@
 
   window.__bookScanResult = function (base64, error) {
     removeBusy();
-    if (error) { alert(error); return; }
+    if (error) { console.error(error); return; }
     try {
       const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
       const json = new TextDecoder('utf-8').decode(bytes);
       openReview(JSON.parse(json));
     } catch (e) {
-      alert(String(e));
+      console.error(e);
     }
   };
 
@@ -172,19 +191,21 @@
 
     const actions = document.createElement('div');
     actions.id = 'android-header-actions';
-    actions.style.cssText = 'display:flex;align-items:center;margin:-7px -7px -7px 8px;';
+    actions.style.cssText = 'display:flex;align-items:center;margin:-7px -7px -7px 8px;position:relative;z-index:2;pointer-events:auto;';
 
     const scan = document.createElement('button');
     scan.id = 'android-scan-book-button';
+    scan.type = 'button';
     scan.setAttribute('aria-label', labels().scan);
-    scan.style.cssText = 'width:36px;height:36px;display:grid;place-items:center;color:var(--ink);font-size:22px;line-height:1;';
+    scan.style.cssText = 'width:42px;height:42px;display:grid;place-items:center;color:var(--ink);font-size:24px;line-height:1;position:relative;z-index:3;pointer-events:auto;touch-action:manipulation;user-select:none;-webkit-user-select:none;';
     scan.textContent = '+';
-    scan.onclick = startScan;
+    scan.addEventListener('click', startScan, { passive: false });
 
     const settings = document.createElement('button');
     settings.id = 'android-settings-button';
+    settings.type = 'button';
     settings.setAttribute('aria-label', labels().settings);
-    settings.style.cssText = 'width:36px;height:36px;display:grid;place-items:center;color:var(--ink);';
+    settings.style.cssText = 'width:42px;height:42px;display:grid;place-items:center;color:var(--ink);position:relative;z-index:3;pointer-events:auto;touch-action:manipulation;';
     settings.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.97 19.36a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.08A1.7 1.7 0 0 0 4.64 8.94a1.7 1.7 0 0 0-.34-1.88L4.24 7l2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.57 1.7 1.7 0 0 0 10.03 3H10V3h4v.08A1.7 1.7 0 0 0 15.03 4.64a1.7 1.7 0 0 0 1.88-.34l.06-.06L19.8 7l-.06.06a1.7 1.7 0 0 0-.34 1.88A1.7 1.7 0 0 0 20.96 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15z"/></svg>';
     settings.onclick = openSettings;
 
