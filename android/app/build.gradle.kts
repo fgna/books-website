@@ -51,6 +51,11 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.webkit:webkit:1.11.0")
+    implementation("androidx.activity:activity-ktx:1.9.0")
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
     // Keep the same LiteRT-LM line already used for Gemma 4 E2B in my-taskOS.
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
 }
