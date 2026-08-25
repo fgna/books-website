@@ -50,4 +50,6 @@ android {
 
 dependencies {
     implementation("androidx.webkit:webkit:1.11.0")
+    // Keep the same LiteRT-LM line already used for Gemma 4 E2B in my-taskOS.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
 }
