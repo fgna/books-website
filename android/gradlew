@@ -1,6 +1,37 @@
 #!/usr/bin/env sh
 set -eu
 
+# Make local Android builds work without a machine-specific local.properties.
+# Respect an explicitly configured SDK first, then try common Linux/macOS paths.
+if [ -z "${ANDROID_HOME:-}" ] && [ -z "${ANDROID_SDK_ROOT:-}" ]; then
+  for candidate in \
+    "$HOME/Android/Sdk" \
+    "$HOME/Library/Android/sdk" \
+    "/opt/android-sdk" \
+    "/usr/local/android-sdk"; do
+    if [ -d "$candidate" ]; then
+      ANDROID_HOME="$candidate"
+      ANDROID_SDK_ROOT="$candidate"
+      export ANDROID_HOME ANDROID_SDK_ROOT
+      break
+    fi
+  done
+fi
+
+if [ -z "${ANDROID_HOME:-}" ] && [ -n "${ANDROID_SDK_ROOT:-}" ]; then
+  ANDROID_HOME="$ANDROID_SDK_ROOT"
+  export ANDROID_HOME
+elif [ -z "${ANDROID_SDK_ROOT:-}" ] && [ -n "${ANDROID_HOME:-}" ]; then
+  ANDROID_SDK_ROOT="$ANDROID_HOME"
+  export ANDROID_SDK_ROOT
+fi
+
+if [ -z "${ANDROID_HOME:-}" ] || [ ! -d "$ANDROID_HOME" ]; then
+  echo "Android SDK not found." >&2
+  echo "Set ANDROID_HOME/ANDROID_SDK_ROOT or install it in ~/Android/Sdk." >&2
+  exit 1
+fi
+
 GRADLE_VERSION=8.11.1
 BASE="${GRADLE_USER_HOME:-$HOME/.gradle}/wrapper/dists/books-website-gradle-$GRADLE_VERSION"
 ZIP="$BASE/gradle-$GRADLE_VERSION-bin.zip"
