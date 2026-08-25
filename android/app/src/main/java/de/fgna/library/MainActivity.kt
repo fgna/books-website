@@ -190,6 +190,18 @@ class MainActivity : Activity() {
         fun isManualOverride(): Boolean = prefs.getBoolean(PREF_MANUAL_OVERRIDE, false)
 
         @JavascriptInterface
+        fun getLanguage(): String = prefs.getString(PREF_LANGUAGE, "") ?: ""
+
+        @JavascriptInterface
+        fun setLanguage(value: String): Boolean {
+            val lang = value.lowercase(Locale.ROOT)
+            if (lang != "en" && lang != "de") return false
+            prefs.edit().putString(PREF_LANGUAGE, lang).apply()
+            runOnUiThread { loadApp() }
+            return true
+        }
+
+        @JavascriptInterface
         fun hasLocalBookModel(): Boolean = modelFile().let { it.isFile && it.length() > 0L }
 
         @JavascriptInterface
@@ -423,5 +435,6 @@ class MainActivity : Activity() {
         private const val REQUEST_MODEL_IMPORT = 1003
         private const val REQUEST_CAPTURE = 1004
         private const val PREF_MANUAL_OVERRIDE = "manual_books_override"
+        private const val PREF_LANGUAGE = "ui_language"
     }
 }
