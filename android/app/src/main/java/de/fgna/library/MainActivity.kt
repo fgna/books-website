@@ -2,18 +2,15 @@ package de.fgna.library
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.MediaStore
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.core.content.FileProvider
 import androidx.webkit.WebViewAssetLoader
 import org.json.JSONArray
 import org.json.JSONObject
@@ -63,13 +60,28 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK) return
 
+        if (requestCode == REQUEST_CAPTURE) {
+            if (resultCode == RESULT_OK) {
+                val path = data?.getStringExtra(BookCameraActivity.EXTRA_OUTPUT_PATH)
+                val file = path?.let(::File) ?: pendingCapture
+                if (file != null && file.isFile && file.length() > 0L) {
+                    identifyCapturedBook(file)
+                } else {
+                    evaluate("window.__bookScanResult && window.__bookScanResult(null, ${JSONObject.quote("Die Kamera hat kein Bild gespeichert.")});")
+                }
+            } else {
+                val error = data?.getStringExtra(BookCameraActivity.EXTRA_ERROR) ?: "Kameraaufnahme abgebrochen."
+                evaluate("window.__bookScanResult && window.__bookScanResult(null, ${JSONObject.quote(error)});")
+            }
+            return
+        }
+
+        if (resultCode != RESULT_OK) return
         when (requestCode) {
             REQUEST_IMPORT -> data?.data?.let(::importBooksJson)
             REQUEST_EXPORT -> data?.data?.let(::exportBooksJson)
             REQUEST_MODEL_IMPORT -> data?.data?.let(::importLocalModel)
-            REQUEST_CAPTURE -> pendingCapture?.takeIf(File::isFile)?.let(::identifyCapturedBook)
         }
     }
 
@@ -236,21 +248,12 @@ class MainActivity : Activity() {
                 val directory = File(cacheDir, "book-captures").apply { mkdirs() }
                 val output = File(directory, "book-${System.currentTimeMillis()}.jpg")
                 pendingCapture = output
-                val uri = FileProvider.getUriForFile(
-                    this@MainActivity,
-                    "${packageName}.fileprovider",
-                    output,
+                startActivityForResult(
+                    Intent(this@MainActivity, BookCameraActivity::class.java).apply {
+                        putExtra(BookCameraActivity.EXTRA_OUTPUT_PATH, output.absolutePath)
+                    },
+                    REQUEST_CAPTURE,
                 )
-                val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                    putExtra(MediaStore.EXTRA_OUTPUT, uri)
-                    clipData = ClipData.newRawUri("book photo", uri)
-                    addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                if (intent.resolveActivity(packageManager) == null) {
-                    showNativeError("Keine Kamera-App verfügbar.")
-                    return@runOnUiThread
-                }
-                startActivityForResult(intent, REQUEST_CAPTURE)
             }
         }
 
