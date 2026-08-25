@@ -39,6 +39,7 @@ android {
             include("config.js")
             include("books.json")
             include("android-books-source.js")
+            include("android-settings.js")
         }
         into(layout.buildDirectory.dir("generated/webAssets/www"))
     }
