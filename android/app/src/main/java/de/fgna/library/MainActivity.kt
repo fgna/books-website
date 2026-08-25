@@ -2,25 +2,33 @@ package de.fgna.library
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ClipData
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.core.content.FileProvider
 import androidx.webkit.WebViewAssetLoader
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.Normalizer
+import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private lateinit var webView: WebView
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private val prefs by lazy { getSharedPreferences("library", MODE_PRIVATE) }
+    private var pendingCapture: File? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,40 +63,103 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK || data?.data == null) return
+        if (resultCode != RESULT_OK) return
 
         when (requestCode) {
-            REQUEST_IMPORT -> {
-                val uri = data.data ?: return
-                ioExecutor.execute {
-                    runCatching {
-                        val text = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                            ?: error("Could not read selected JSON file")
-                        validateJson(text)
-                        cacheFile().writeText(text, Charsets.UTF_8)
-                        prefs.edit().putBoolean(PREF_MANUAL_OVERRIDE, true).apply()
-                    }.onSuccess {
-                        runOnUiThread { loadApp() }
-                    }.onFailure { error ->
-                        showNativeError(error.message ?: "JSON import failed")
-                    }
-                }
-            }
-            REQUEST_EXPORT -> {
-                val uri = data.data ?: return
-                ioExecutor.execute {
-                    runCatching {
-                        val text = activeJsonForExport()
-                        contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use { it.write(text) }
-                            ?: error("Could not write selected file")
-                    }.onFailure { error ->
-                        showNativeError(error.message ?: "JSON export failed")
-                    }
-                }
+            REQUEST_IMPORT -> data?.data?.let(::importBooksJson)
+            REQUEST_EXPORT -> data?.data?.let(::exportBooksJson)
+            REQUEST_MODEL_IMPORT -> data?.data?.let(::importLocalModel)
+            REQUEST_CAPTURE -> pendingCapture?.takeIf(File::isFile)?.let(::identifyCapturedBook)
+        }
+    }
+
+    private fun importBooksJson(uri: Uri) {
+        ioExecutor.execute {
+            runCatching {
+                val text = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                    ?: error("Could not read selected JSON file")
+                validateJson(text)
+                cacheFile().writeText(text, Charsets.UTF_8)
+                prefs.edit().putBoolean(PREF_MANUAL_OVERRIDE, true).apply()
+            }.onSuccess {
+                runOnUiThread { loadApp() }
+            }.onFailure { error ->
+                showNativeError(error.message ?: "JSON import failed")
             }
         }
     }
 
+    private fun exportBooksJson(uri: Uri) {
+        ioExecutor.execute {
+            runCatching {
+                val text = activeJsonForExport()
+                contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use { it.write(text) }
+                    ?: error("Could not write selected file")
+            }.onFailure { error ->
+                showNativeError(error.message ?: "JSON export failed")
+            }
+        }
+    }
+
+    private fun importLocalModel(uri: Uri) {
+        evaluate("window.__bookModelStatus && window.__bookModelStatus('copying', null);")
+        ioExecutor.execute {
+            runCatching {
+                val destination = modelFile()
+                destination.parentFile?.mkdirs()
+                val temporary = File(destination.parentFile, "model.litertlm.part")
+                temporary.delete()
+                contentResolver.openInputStream(uri).use { input ->
+                    requireNotNull(input) { "Modelldatei konnte nicht geöffnet werden." }
+                    temporary.outputStream().buffered().use { output -> input.copyTo(output, DEFAULT_BUFFER_SIZE) }
+                }
+                check(temporary.length() > 0L) { "Modelldatei ist leer." }
+                destination.delete()
+                check(temporary.renameTo(destination)) { "Modelldatei konnte nicht gespeichert werden." }
+                destination.length()
+            }.onSuccess { bytes ->
+                val mb = bytes / (1024.0 * 1024.0)
+                evaluate("window.__bookModelStatus && window.__bookModelStatus('ready', ${JSONObject.quote(String.format(Locale.US, "%.0f MB", mb))});")
+            }.onFailure { error ->
+                evaluate("window.__bookModelStatus && window.__bookModelStatus('error', ${JSONObject.quote(error.message ?: "Modellimport fehlgeschlagen")});")
+            }
+        }
+    }
+
+    private fun identifyCapturedBook(file: File) {
+        evaluate("window.__bookScanStatus && window.__bookScanStatus('running', null);")
+        ioExecutor.execute {
+            runCatching {
+                val model = modelFile().takeIf { it.isFile && it.length() > 0L }
+                    ?: error("Kein lokales .litertlm-Modell importiert.")
+                val raw = LocalBookInference.identify(model.absolutePath, file.absolutePath)
+                parseRecognition(raw)
+            }.onSuccess { result ->
+                val encoded = Base64.encodeToString(result.toString().toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+                evaluate("window.__bookScanResult && window.__bookScanResult(${JSONObject.quote(encoded)}, null);")
+            }.onFailure { error ->
+                evaluate("window.__bookScanResult && window.__bookScanResult(null, ${JSONObject.quote(error.message ?: "Bucherkennung fehlgeschlagen")});")
+            }
+        }
+    }
+
+    private fun parseRecognition(raw: String): JSONObject {
+        val cleaned = raw
+            .replace("```json", "", ignoreCase = true)
+            .replace("```", "")
+            .trim()
+        val start = cleaned.indexOf('{')
+        val end = cleaned.lastIndexOf('}')
+        require(start >= 0 && end > start) { "Das Modell hat kein gültiges JSON zurückgegeben." }
+        val result = JSONObject(cleaned.substring(start, end + 1))
+        require(result.optString("title").isNotBlank()) { "Auf dem Foto wurde kein sicherer Buchtitel erkannt." }
+        result.put("author", result.optString("author", ""))
+        val confidence = result.optDouble("confidence", 0.0).coerceIn(0.0, 1.0)
+        result.put("confidence", confidence)
+        return result
+    }
+
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else super.onBackPressed()
     }
@@ -105,6 +176,15 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun isManualOverride(): Boolean = prefs.getBoolean(PREF_MANUAL_OVERRIDE, false)
+
+        @JavascriptInterface
+        fun hasLocalBookModel(): Boolean = modelFile().let { it.isFile && it.length() > 0L }
+
+        @JavascriptInterface
+        fun getLocalBookModelSize(): String {
+            val file = modelFile().takeIf { it.isFile && it.length() > 0L } ?: return ""
+            return String.format(Locale.US, "%.0f MB", file.length() / (1024.0 * 1024.0))
+        }
 
         @JavascriptInterface
         fun importBooks() {
@@ -131,6 +211,76 @@ class MainActivity : Activity() {
                     REQUEST_EXPORT
                 )
             }
+        }
+
+        @JavascriptInterface
+        fun importLocalBookModel() {
+            runOnUiThread {
+                startActivityForResult(
+                    Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                    },
+                    REQUEST_MODEL_IMPORT
+                )
+            }
+        }
+
+        @JavascriptInterface
+        fun captureBook() {
+            runOnUiThread {
+                if (!hasLocalBookModel()) {
+                    showNativeError("Bitte zuerst in Einstellungen ein lokales .litertlm-Modell importieren.")
+                    return@runOnUiThread
+                }
+                val directory = File(cacheDir, "book-captures").apply { mkdirs() }
+                val output = File(directory, "book-${System.currentTimeMillis()}.jpg")
+                pendingCapture = output
+                val uri = FileProvider.getUriForFile(
+                    this@MainActivity,
+                    "${packageName}.fileprovider",
+                    output,
+                )
+                val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                    putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                    clipData = ClipData.newRawUri("book photo", uri)
+                    addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                if (intent.resolveActivity(packageManager) == null) {
+                    showNativeError("Keine Kamera-App verfügbar.")
+                    return@runOnUiThread
+                }
+                startActivityForResult(intent, REQUEST_CAPTURE)
+            }
+        }
+
+        @JavascriptInterface
+        fun addRecognizedBook(title: String, author: String, force: Boolean): String {
+            return runCatching {
+                val root = JSONObject(activeJsonForExport())
+                val books = root.getJSONArray("books")
+                val duplicate = findDuplicate(books, title, author)
+                if (duplicate != null && !force) {
+                    return@runCatching JSONObject()
+                        .put("ok", false)
+                        .put("duplicate", true)
+                        .put("existingTitle", duplicate.optString("title"))
+                        .put("existingAuthor", duplicate.optString("author"))
+                        .toString()
+                }
+
+                books.put(newBook(title.trim(), author.trim()))
+                cacheFile().writeText(root.toString(2), Charsets.UTF_8)
+                prefs.edit().putBoolean(PREF_MANUAL_OVERRIDE, true).apply()
+                JSONObject().put("ok", true).put("duplicate", false).toString()
+            }.getOrElse { error ->
+                JSONObject().put("ok", false).put("error", error.message ?: "Buch konnte nicht gespeichert werden").toString()
+            }
+        }
+
+        @JavascriptInterface
+        fun reloadLibrary() {
+            runOnUiThread { loadApp() }
         }
 
         @JavascriptInterface
@@ -198,6 +348,47 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun findDuplicate(books: JSONArray, title: String, author: String): JSONObject? {
+        val targetTitle = normalize(title)
+        val targetAuthor = normalize(author)
+        for (index in 0 until books.length()) {
+            val book = books.optJSONObject(index) ?: continue
+            if (normalize(book.optString("title")) != targetTitle) continue
+            val existingAuthor = normalize(book.optString("author"))
+            if (targetAuthor.isBlank() || existingAuthor.isBlank() || targetAuthor == existingAuthor) return book
+        }
+        return null
+    }
+
+    private fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFD)
+        .replace("\\p{M}+".toRegex(), "")
+        .lowercase(Locale.ROOT)
+        .replace("[^a-z0-9]+".toRegex(), " ")
+        .trim()
+
+    private fun newBook(title: String, author: String): JSONObject = JSONObject().apply {
+        put("title", title)
+        put("original_title", JSONObject.NULL)
+        put("author", author)
+        put("genre", JSONArray())
+        put("language", "")
+        put("keywords", JSONArray())
+        put("summary", "")
+        put("summary_en", JSONObject.NULL)
+        put("read", JSONObject.NULL)
+        put("year_published", JSONObject.NULL)
+        put("main_idea", JSONObject.NULL)
+        put("main_idea_en", JSONObject.NULL)
+        put("openlibrary_work_id", JSONObject.NULL)
+        put("wikipedia_url", JSONObject.NULL)
+        put("original_language", JSONObject.NULL)
+        put("country_of_origin", JSONObject.NULL)
+        put("period", JSONObject.NULL)
+        put("rating", JSONObject.NULL)
+        put("mood", JSONArray())
+        put("series", JSONObject.NULL)
+    }
+
     private fun validateJson(text: String) {
         JSONObject(text).getJSONArray("books")
     }
@@ -213,14 +404,21 @@ class MainActivity : Activity() {
 
     private fun cacheFile() = File(filesDir, "books-cache.json")
 
+    private fun modelFile() = File(File(noBackupFilesDir, "local-book-model"), "model.litertlm")
+
     private fun showNativeError(message: String) {
-        val script = "alert(${JSONObject.quote(message)});"
-        runOnUiThread { webView.evaluateJavascript(script, null) }
+        evaluate("alert(${JSONObject.quote(message)});")
+    }
+
+    private fun evaluate(script: String) {
+        runOnUiThread { if (::webView.isInitialized) webView.evaluateJavascript(script, null) }
     }
 
     companion object {
         private const val REQUEST_IMPORT = 1001
         private const val REQUEST_EXPORT = 1002
+        private const val REQUEST_MODEL_IMPORT = 1003
+        private const val REQUEST_CAPTURE = 1004
         private const val PREF_MANUAL_OVERRIDE = "manual_books_override"
     }
 }
