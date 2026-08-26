@@ -21,24 +21,24 @@
       importJson: 'JSON importieren', exportJson: 'JSON exportieren', useRemote: 'Remote-Daten wieder verwenden', close: 'Schließen',
       localAi: 'Lokale Bucherkennung', importModel: 'Gemma .litertlm importieren', noModel: 'Kein Modell importiert',
       scan: 'Buch fotografieren', openingCamera: 'Kamera wird geöffnet…', scanning: 'Buch wird lokal erkannt…', enriching: 'Metadaten werden ergänzt…', copying: 'Modell wird kopiert…', ready: 'Modell bereit',
-      review: 'Erkanntes Buch prüfen', title: 'Titel', author: 'Autor', confidence: 'Sicherheit', add: 'Zur Bibliothek hinzufügen', cancel: 'Abbrechen',
+      review: 'Erkanntes Buch prüfen', title: 'Titel', author: 'Autor', confidence: 'Sicherheit', add: 'Zur Bibliothek hinzufügen', addAnyway: 'Trotzdem hinzufügen', cancel: 'Abbrechen',
       metadata: 'Metadaten', genre: 'Genre', year: 'Erstveröffentlichung', languageValue: 'Sprache', originalLanguage: 'Originalsprache', series: 'Reihe', summary: 'Kurzbeschreibung', mainIdea: 'Kernidee', openLibrary: 'Open Library',
-      duplicate: 'Ein ähnlicher Eintrag existiert bereits. Trotzdem hinzufügen?', saved: 'Buch hinzugefügt.', modelRequired: 'Bitte zuerst ein lokales .litertlm-Modell importieren.'
+      duplicate: 'Ein ähnlicher Eintrag existiert bereits.', saved: 'Buch hinzugefügt.', modelRequired: 'Bitte zuerst ein lokales .litertlm-Modell importieren.'
     } : {
       settings: 'Settings', language: 'Language', source: 'Data source', imported: 'Local catalog', remote: 'Remote sync',
       importJson: 'Import JSON', exportJson: 'Export JSON', useRemote: 'Use remote data again', close: 'Close',
       localAi: 'Local book recognition', importModel: 'Import Gemma .litertlm', noModel: 'No model imported',
       scan: 'Photograph book', openingCamera: 'Opening camera…', scanning: 'Recognizing book locally…', enriching: 'Enriching metadata…', copying: 'Copying model…', ready: 'Model ready',
-      review: 'Review recognized book', title: 'Title', author: 'Author', confidence: 'Confidence', add: 'Add to library', cancel: 'Cancel',
+      review: 'Review recognized book', title: 'Title', author: 'Author', confidence: 'Confidence', add: 'Add to library', addAnyway: 'Add anyway', cancel: 'Cancel',
       metadata: 'Metadata', genre: 'Genre', year: 'First published', languageValue: 'Language', originalLanguage: 'Original language', series: 'Series', summary: 'Summary', mainIdea: 'Main idea', openLibrary: 'Open Library',
-      duplicate: 'A similar entry already exists. Add it anyway?', saved: 'Book added.', modelRequired: 'Import a local .litertlm model first.'
+      duplicate: 'A similar entry already exists.', saved: 'Book added.', modelRequired: 'Import a local .litertlm model first.'
     };
   }
 
   function escapeHtml(value) {
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+      .replace(/\"/g, '&quot;').replace(/'/g, '&#039;');
   }
 
   function sheetBase(id) {
@@ -165,6 +165,7 @@
       <input id="android-book-author" value="${escapeHtml(result.author)}" style="box-sizing:border-box;width:100%;border:1px solid var(--rule);background:transparent;padding:12px;font-family:var(--serif);font-size:17px;margin-bottom:12px;color:var(--ink)" />
       <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin-bottom:18px">${L.confidence}: ${confidence}%</div>
       ${metadata ? `<div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin:4px 0 6px">${L.metadata}</div>${metadata}<div style="height:16px"></div>` : ''}
+      <div id="android-book-duplicate" style="display:none;border-top:1px solid var(--oxblood);padding:12px 2px;font-family:var(--serif);font-size:14px;line-height:1.45;color:var(--oxblood)"></div>
       <button id="android-book-add" style="width:100%;border-top:1px solid var(--ink);padding:15px 2px;text-align:left;font-family:var(--sans);font-size:15px;color:var(--oxblood)">${L.add}</button>
       <button id="android-book-cancel" style="width:100%;border-top:1px solid var(--rule);padding:15px 2px;text-align:left;font-family:var(--sans);font-size:15px">${L.cancel}</button>
     `;
@@ -172,20 +173,32 @@
     const close = () => overlay.remove();
     overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
     sheet.querySelector('#android-book-cancel').onclick = close;
-    sheet.querySelector('#android-book-add').onclick = () => {
+    const addButton = sheet.querySelector('#android-book-add');
+    const duplicateBox = sheet.querySelector('#android-book-duplicate');
+    let forceDuplicate = false;
+    addButton.onclick = () => {
       const title = sheet.querySelector('#android-book-title').value.trim();
       const author = sheet.querySelector('#android-book-author').value.trim();
       if (!title) return;
       let saved;
-      try { saved = JSON.parse(native.addRecognizedBook(title, author, false)); }
-      catch (e) { console.error(e); return; }
+      try { saved = JSON.parse(native.addRecognizedBook(title, author, forceDuplicate)); }
+      catch (e) {
+        console.error(e);
+        duplicateBox.style.display = 'block';
+        duplicateBox.textContent = String(e);
+        return;
+      }
       if (saved.duplicate) {
         const details = [saved.existingTitle, saved.existingAuthor].filter(Boolean).join(' · ');
-        if (!confirm(`${L.duplicate}${details ? `\n\n${details}` : ''}`)) return;
-        saved = JSON.parse(native.addRecognizedBook(title, author, true));
+        duplicateBox.style.display = 'block';
+        duplicateBox.innerHTML = `${escapeHtml(L.duplicate)}${details ? `<br><strong>${escapeHtml(details)}</strong>` : ''}`;
+        forceDuplicate = true;
+        addButton.textContent = L.addAnyway;
+        return;
       }
       if (!saved.ok) {
-        console.error(saved.error || 'Save failed');
+        duplicateBox.style.display = 'block';
+        duplicateBox.textContent = saved.error || 'Save failed';
         return;
       }
       close();
