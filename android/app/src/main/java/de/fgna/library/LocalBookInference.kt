@@ -7,18 +7,27 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 
 internal object LocalBookInference {
-    private const val MAX_TOKENS = 2048
+    private const val MAX_TOKENS = 4096
 
     fun identify(modelPath: String, imagePath: String): String {
         val gpu = runCatching {
-            run(modelPath, imagePath, Backend.GPU(), Backend.GPU())
+            runImage(modelPath, imagePath, Backend.GPU(), Backend.GPU())
         }
         return gpu.getOrElse {
-            run(modelPath, imagePath, Backend.CPU(), Backend.CPU())
+            runImage(modelPath, imagePath, Backend.CPU(), Backend.CPU())
         }
     }
 
-    private fun run(
+    fun enrich(modelPath: String, prompt: String): String {
+        val gpu = runCatching {
+            runText(modelPath, prompt, Backend.GPU())
+        }
+        return gpu.getOrElse {
+            runText(modelPath, prompt, Backend.CPU())
+        }
+    }
+
+    private fun runImage(
         modelPath: String,
         imagePath: String,
         backend: Backend,
@@ -36,13 +45,12 @@ internal object LocalBookInference {
             engine.initialize()
             val conversation = engine.createConversation()
             try {
-                val response = conversation.sendMessage(
+                return conversation.sendMessage(
                     Contents.of(
                         Content.ImageFile(imagePath),
-                        Content.Text(prompt()),
+                        Content.Text(identifyPrompt()),
                     )
-                )
-                return response.toString().trim()
+                ).toString().trim()
             } finally {
                 conversation.close()
             }
@@ -51,7 +59,30 @@ internal object LocalBookInference {
         }
     }
 
-    private fun prompt(): String = """
+    private fun runText(modelPath: String, prompt: String, backend: Backend): String {
+        val engine = Engine(
+            EngineConfig(
+                modelPath = modelPath,
+                backend = backend,
+                maxNumTokens = MAX_TOKENS,
+            )
+        )
+        try {
+            engine.initialize()
+            val conversation = engine.createConversation()
+            try {
+                return conversation.sendMessage(
+                    Contents.of(Content.Text(prompt))
+                ).toString().trim()
+            } finally {
+                conversation.close()
+            }
+        } finally {
+            engine.close()
+        }
+    }
+
+    private fun identifyPrompt(): String = """
         Du liest ein Foto eines einzelnen physischen Buches oder Buchrückens.
         Extrahiere ausschließlich Informationen, die auf dem Foto sichtbar sind.
         Erfinde keine Metadaten und ergänze nichts aus deinem Weltwissen.
