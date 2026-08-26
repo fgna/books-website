@@ -2,6 +2,7 @@
 (function () {
   if (!window.AndroidBookSource) return;
   const native = window.AndroidBookSource;
+  let catalogChanged = false;
 
   const isGerman = () => ((window.LIB_CONFIG && window.LIB_CONFIG.lang) || 'en') === 'de';
   const labels = () => isGerman() ? {
@@ -27,7 +28,6 @@
     const sheet=document.createElement('div');
     sheet.style.cssText='width:100%;max-height:92vh;overflow:auto;background:var(--paper);border-top:1px solid var(--ink);padding:20px 18px calc(20px + var(--safe-bot));box-shadow:0 -18px 50px rgba(28,28,30,.16);pointer-events:auto;';
     overlay.appendChild(sheet); document.body.appendChild(overlay);
-    overlay.addEventListener('click',e=>{ if(e.target===overlay) overlay.remove(); });
     return {overlay,sheet};
   }
   const empty=v=>v==null||v===''||(Array.isArray(v)&&v.length===0);
@@ -63,7 +63,7 @@
       const y=v('#e-year'); b.year_published=y&&Number.isFinite(Number(y))?Number(y):null;
       let r; try{r=JSON.parse(native.updateBookEntry(Number(entry.index),JSON.stringify(b)));}catch(e){r={ok:false,error:String(e)}}
       if(!r.ok){const box=sheet.querySelector('#e-error');box.style.display='block';box.textContent=r.error||L.error;return;}
-      overlay.remove(); onDone();
+      catalogChanged=true; overlay.remove(); onDone();
     };
   }
 
@@ -78,23 +78,36 @@
       const y=v('#m-year');b.year_published=y&&Number.isFinite(Number(y))?Number(y):null;
       let r;try{r=JSON.parse(native.mergeBookEntries(JSON.stringify(entries.map(e=>Number(e.index))),JSON.stringify(b)));}catch(e){r={ok:false,error:String(e)}}
       if(!r.ok){const box=sheet.querySelector('#m-error');box.style.display='block';box.textContent=r.error||L.error;return;}
-      overlay.remove();onDone();
+      catalogChanged=true; overlay.remove();onDone();
     };
+  }
+
+  function reopenDuplicates(parentOverlay){
+    parentOverlay.remove();
+    window.setTimeout(openDuplicates, 0);
   }
 
   function openDuplicates(){
     const L=labels(); let result;
     try{result=JSON.parse(native.findDuplicateBooks());}catch(e){result={ok:false,error:String(e)}}
     const {overlay,sheet}=sheetBase('android-duplicates-overlay',360);
+    const close=()=>{
+      overlay.remove();
+      if(catalogChanged){
+        catalogChanged=false;
+        native.reloadLibrary();
+      }
+    };
+    overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
     const groups=result&&Array.isArray(result.groups)?result.groups:[];
-    if(!result.ok||!groups.length){sheet.innerHTML=`<div class="display" style="font-size:24px;margin-bottom:18px">${esc(L.title)}</div><div style="font-family:var(--serif);font-size:17px;margin-bottom:22px">${esc(result&&result.ok?L.none:((result&&result.error)||L.error))}</div><button id="d-close" style="width:100%;border-top:1px solid var(--rule);padding:15px 2px;text-align:left;pointer-events:auto">${esc(L.close)}</button>`;sheet.querySelector('#d-close').onclick=()=>overlay.remove();return;}
+    if(!result.ok||!groups.length){sheet.innerHTML=`<div class="display" style="font-size:24px;margin-bottom:18px">${esc(L.title)}</div><div style="font-family:var(--serif);font-size:17px;margin-bottom:22px">${esc(result&&result.ok?L.none:((result&&result.error)||L.error))}</div><button id="d-close" style="width:100%;border-top:1px solid var(--rule);padding:15px 2px;text-align:left;pointer-events:auto">${esc(L.close)}</button>`;sheet.querySelector('#d-close').onclick=close;return;}
     const groupsHtml=groups.map((g,gi)=>`<section style="margin-bottom:28px"><div style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">${esc(L.similarity)} ${Math.round((Number(g.confidence)||0)*100)}% · ${esc(g.reason||'')}</div><div class="display" style="font-size:20px;margin:5px 0 8px">${esc(g.title||'')}</div>${(g.entries||[]).map((e,ei)=>`<div style="display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:start;padding:11px 0;border-top:1px solid var(--rule)"><input class="dup-check" type="checkbox" data-group="${gi}" data-index="${Number(e.index)}" ${ei<2?'checked':''} style="width:18px;height:18px;margin-top:3px;pointer-events:auto"/><div><div style="font-family:var(--serif);font-size:16px">${esc(e.title)}</div><div style="font-size:12px;color:var(--ink-2)">${esc(e.author)}</div></div><button class="dup-edit" data-group="${gi}" data-entry="${ei}" style="font-family:var(--mono);font-size:9px;padding:7px;pointer-events:auto">${esc(L.edit)}</button></div>`).join('')}<button class="dup-merge" data-group="${gi}" style="width:100%;text-align:left;border-top:1px solid var(--ink);padding:12px 2px;color:var(--oxblood);pointer-events:auto">${esc(L.merge)}</button></section>`).join('');
     sheet.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><div class="display" style="font-size:24px">${esc(L.title)}</div><button id="d-close" style="padding:8px;pointer-events:auto">${esc(L.close)}</button></div>${groupsHtml}<div id="d-confirm" style="display:none;color:var(--oxblood);padding:12px 0">${esc(L.confirm)}</div><button id="d-delete" style="width:100%;text-align:left;border-top:1px solid var(--ink);padding:15px 2px;color:var(--oxblood);pointer-events:auto">${esc(L.del)}</button>`;
-    const close=()=>overlay.remove(); sheet.querySelector('#d-close').onclick=close;
+    sheet.querySelector('#d-close').onclick=close;
     const checks=()=>Array.from(sheet.querySelectorAll('.dup-check'));
-    sheet.querySelectorAll('.dup-edit').forEach(btn=>{btn.onclick=()=>{const e=groups[Number(btn.dataset.group)].entries[Number(btn.dataset.entry)];editSheet(e,()=>{close();native.reloadLibrary();});};});
-    sheet.querySelectorAll('.dup-merge').forEach(btn=>{btn.onclick=()=>{const gi=Number(btn.dataset.group);const chosen=checks().filter(c=>c.checked&&Number(c.dataset.group)===gi).map(c=>groups[gi].entries.find(e=>Number(e.index)===Number(c.dataset.index))).filter(Boolean);if(chosen.length<2){btn.textContent=L.merge+' (2+)';return;}mergeSheet(chosen,()=>{close();native.reloadLibrary();});};});
-    let armed=false;const confirm=sheet.querySelector('#d-confirm');sheet.querySelector('#d-delete').onclick=()=>{const indices=checks().filter(c=>c.checked).map(c=>Number(c.dataset.index));if(!indices.length)return;if(!armed){armed=true;confirm.style.display='block';return;}let r;try{r=JSON.parse(native.deleteBookEntries(JSON.stringify(indices)));}catch(e){r={ok:false,error:String(e)}}if(!r.ok){confirm.textContent=r.error||L.error;armed=false;return;}close();native.reloadLibrary();};
+    sheet.querySelectorAll('.dup-edit').forEach(btn=>{btn.onclick=()=>{const e=groups[Number(btn.dataset.group)].entries[Number(btn.dataset.entry)];editSheet(e,()=>reopenDuplicates(overlay));};});
+    sheet.querySelectorAll('.dup-merge').forEach(btn=>{btn.onclick=()=>{const gi=Number(btn.dataset.group);const chosen=checks().filter(c=>c.checked&&Number(c.dataset.group)===gi).map(c=>groups[gi].entries.find(e=>Number(e.index)===Number(c.dataset.index))).filter(Boolean);if(chosen.length<2){btn.textContent=L.merge+' (2+)';return;}mergeSheet(chosen,()=>reopenDuplicates(overlay));};});
+    let armed=false;const confirm=sheet.querySelector('#d-confirm');sheet.querySelector('#d-delete').onclick=()=>{const indices=checks().filter(c=>c.checked).map(c=>Number(c.dataset.index));if(!indices.length)return;if(!armed){armed=true;confirm.style.display='block';return;}let r;try{r=JSON.parse(native.deleteBookEntries(JSON.stringify(indices)));}catch(e){r={ok:false,error:String(e)}}if(!r.ok){confirm.textContent=r.error||L.error;armed=false;return;}catalogChanged=true;reopenDuplicates(overlay);};
   }
 
   function injectSettingsAction(){
