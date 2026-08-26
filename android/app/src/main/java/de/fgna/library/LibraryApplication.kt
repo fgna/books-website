@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit
 class LibraryApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        LocalBookInference.install(this)
 
         Thread {
             runCatching { BookBackupManager.createBackupIfNeeded(this) }
