@@ -76,9 +76,11 @@ object DuplicateMatcher {
     }
 
     private fun compare(a: JSONObject, b: JSONObject): Match? {
-        val idA = a.optString("openlibrary_work_id").trim().lowercase(Locale.ROOT)
-        val idB = b.optString("openlibrary_work_id").trim().lowercase(Locale.ROOT)
-        if (idA.isNotBlank() && idA == idB) return Match(1.0, "same Open Library work ID")
+        val idA = openLibraryWorkId(a)
+        val idB = openLibraryWorkId(b)
+        if (idA != null && idB != null && idA == idB) {
+            return Match(1.0, "same Open Library work ID")
+        }
 
         val titleA = normalize(a.optString("title"))
         val titleB = normalize(b.optString("title"))
@@ -101,6 +103,15 @@ object DuplicateMatcher {
 
         val score = if (authorA.isBlank() || authorB.isBlank()) title * 0.92 else title * 0.72 + author * 0.28
         return Match(score, "title ${percent(title)}, author ${percent(author)}")
+    }
+
+    private fun openLibraryWorkId(book: JSONObject): String? {
+        if (!book.has("openlibrary_work_id") || book.isNull("openlibrary_work_id")) return null
+        val raw = book.optString("openlibrary_work_id", "").trim()
+        if (raw.isBlank()) return null
+        if (raw.equals("null", true) || raw.equals("none", true) || raw.equals("undefined", true)) return null
+        val id = raw.substringAfterLast('/').uppercase(Locale.ROOT)
+        return id.takeIf { OPEN_LIBRARY_WORK_ID.matches(it) }
     }
 
     private fun authorSimilarity(a: String, b: String): Double {
@@ -161,4 +172,6 @@ object DuplicateMatcher {
 
     private fun nullable(book: JSONObject, key: String): Any = if (!book.has(key) || book.isNull(key)) JSONObject.NULL else book.get(key)
     private fun percent(value: Double) = "${(value * 100).toInt()}%"
+
+    private val OPEN_LIBRARY_WORK_ID = Regex("^OL[0-9]+W$")
 }
