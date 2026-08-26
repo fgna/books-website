@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.CAMERA" />
 
     <application
+        android:name=".LibraryApplication"
         android:allowBackup="true"
         android:label="the Library"
         android:supportsRtl="true"
