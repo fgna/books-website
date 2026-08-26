@@ -58,6 +58,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.3.4")
     implementation("androidx.camera:camera-lifecycle:1.3.4")
     implementation("androidx.camera:camera-view:1.3.4")
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
     // Keep the same LiteRT-LM runtime line used by the current local multimodal model.
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
 }
