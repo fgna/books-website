@@ -1,4 +1,4 @@
-// Keep user-facing Android UI model-agnostic. Runtime/model details remain implementation concerns.
+// Keep user-facing Android UI model-agnostic and hide obsolete remote-reset controls.
 (function () {
   if (!window.AndroidBookSource) return;
 
@@ -18,13 +18,24 @@
       .replace(/Gemma/gi, 'Local AI');
   }
 
+  function removeObsoleteControls(root) {
+    const scope = root && root.querySelectorAll ? root : document;
+    const remoteReset = scope.querySelector && scope.querySelector('#android-use-remote');
+    if (remoteReset) remoteReset.remove();
+    if (root && root.id === 'android-use-remote') root.remove();
+  }
+
   function neutralize(root) {
+    removeObsoleteControls(root);
+    if (!root || !root.ownerDocument && root !== document.body) return;
+
     const walker = document.createTreeWalker(root || document.body, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = walker.nextNode())) {
       const next = replaceText(node.nodeValue);
       if (next !== node.nodeValue) node.nodeValue = next;
     }
+
     if (root && root.nodeType === Node.ELEMENT_NODE) {
       for (const attr of ['aria-label', 'title', 'placeholder']) {
         const value = root.getAttribute && root.getAttribute(attr);
@@ -44,15 +55,15 @@
         }
       }
     }
+    removeObsoleteControls(document);
   });
 
-  if (document.body) {
+  function start() {
     neutralize(document.body);
+    removeObsoleteControls(document);
     observer.observe(document.body, { childList: true, subtree: true });
-  } else {
-    document.addEventListener('DOMContentLoaded', () => {
-      neutralize(document.body);
-      observer.observe(document.body, { childList: true, subtree: true });
-    }, { once: true });
   }
+
+  if (document.body) start();
+  else document.addEventListener('DOMContentLoaded', start, { once: true });
 })();
