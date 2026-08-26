@@ -26,6 +26,7 @@ class MainActivity : Activity() {
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private val prefs by lazy { getSharedPreferences("library", MODE_PRIVATE) }
     private var pendingCapture: File? = null
+    private var pendingMetadata: JSONObject? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -139,17 +140,26 @@ class MainActivity : Activity() {
     }
 
     private fun identifyCapturedBook(file: File) {
+        pendingMetadata = null
         evaluate("window.__bookScanStatus && window.__bookScanStatus('running', null);")
         ioExecutor.execute {
             runCatching {
                 val model = modelFile().takeIf { it.isFile && it.length() > 0L }
                     ?: error("Kein lokales .litertlm-Modell importiert.")
                 val raw = LocalBookInference.identify(model.absolutePath, file.absolutePath)
-                parseRecognition(raw)
+                val recognized = parseRecognition(raw)
+                evaluate("window.__bookScanStatus && window.__bookScanStatus('enriching', null);")
+                BookMetadataEnricher.enrich(
+                    modelPath = model.absolutePath,
+                    recognized = recognized,
+                    catalogJson = activeJsonForExport(),
+                )
             }.onSuccess { result ->
+                pendingMetadata = result
                 val encoded = Base64.encodeToString(result.toString().toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
                 evaluate("window.__bookScanResult && window.__bookScanResult(${JSONObject.quote(encoded)}, null);")
             }.onFailure { error ->
+                pendingMetadata = null
                 evaluate("window.__bookScanResult && window.__bookScanResult(null, ${JSONObject.quote(error.message ?: "Bucherkennung fehlgeschlagen")});")
             }
         }
@@ -260,6 +270,7 @@ class MainActivity : Activity() {
                 val directory = File(cacheDir, "book-captures").apply { mkdirs() }
                 val output = File(directory, "book-${System.currentTimeMillis()}.jpg")
                 pendingCapture = output
+                pendingMetadata = null
                 startActivityForResult(
                     Intent(this@MainActivity, BookCameraActivity::class.java).apply {
                         putExtra(BookCameraActivity.EXTRA_OUTPUT_PATH, output.absolutePath)
@@ -284,9 +295,14 @@ class MainActivity : Activity() {
                         .toString()
                 }
 
-                books.put(newBook(title.trim(), author.trim()))
+                val book = pendingMetadata?.let { JSONObject(it.toString()) } ?: newBook(title.trim(), author.trim())
+                book.put("title", title.trim())
+                book.put("author", author.trim())
+                ensureCompleteSchema(book)
+                books.put(book)
                 cacheFile().writeText(root.toString(2), Charsets.UTF_8)
                 prefs.edit().putBoolean(PREF_MANUAL_OVERRIDE, true).apply()
+                pendingMetadata = null
                 JSONObject().put("ok", true).put("duplicate", false).toString()
             }.getOrElse { error ->
                 JSONObject().put("ok", false).put("error", error.message ?: "Buch konnte nicht gespeichert werden").toString()
@@ -402,6 +418,16 @@ class MainActivity : Activity() {
         put("rating", JSONObject.NULL)
         put("mood", JSONArray())
         put("series", JSONObject.NULL)
+    }
+
+    private fun ensureCompleteSchema(book: JSONObject) {
+        val defaults = newBook(book.optString("title"), book.optString("author"))
+        val keys = defaults.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            if (!book.has(key)) book.put(key, defaults.get(key))
+        }
+        book.remove("confidence")
     }
 
     private fun validateJson(text: String) {
