@@ -20,15 +20,17 @@
       settings: 'Einstellungen', language: 'Sprache', source: 'Datenquelle', imported: 'Lokaler Katalog', remote: 'Remote-Synchronisation',
       importJson: 'JSON importieren', exportJson: 'JSON exportieren', useRemote: 'Remote-Daten wieder verwenden', close: 'Schließen',
       localAi: 'Lokale Bucherkennung', importModel: 'Gemma .litertlm importieren', noModel: 'Kein Modell importiert',
-      scan: 'Buch fotografieren', openingCamera: 'Kamera wird geöffnet…', scanning: 'Buch wird lokal erkannt…', copying: 'Modell wird kopiert…', ready: 'Modell bereit',
+      scan: 'Buch fotografieren', openingCamera: 'Kamera wird geöffnet…', scanning: 'Buch wird lokal erkannt…', enriching: 'Metadaten werden ergänzt…', copying: 'Modell wird kopiert…', ready: 'Modell bereit',
       review: 'Erkanntes Buch prüfen', title: 'Titel', author: 'Autor', confidence: 'Sicherheit', add: 'Zur Bibliothek hinzufügen', cancel: 'Abbrechen',
+      metadata: 'Metadaten', genre: 'Genre', year: 'Erstveröffentlichung', languageValue: 'Sprache', originalLanguage: 'Originalsprache', series: 'Reihe', summary: 'Kurzbeschreibung', mainIdea: 'Kernidee', openLibrary: 'Open Library',
       duplicate: 'Ein ähnlicher Eintrag existiert bereits. Trotzdem hinzufügen?', saved: 'Buch hinzugefügt.', modelRequired: 'Bitte zuerst ein lokales .litertlm-Modell importieren.'
     } : {
       settings: 'Settings', language: 'Language', source: 'Data source', imported: 'Local catalog', remote: 'Remote sync',
       importJson: 'Import JSON', exportJson: 'Export JSON', useRemote: 'Use remote data again', close: 'Close',
       localAi: 'Local book recognition', importModel: 'Import Gemma .litertlm', noModel: 'No model imported',
-      scan: 'Photograph book', openingCamera: 'Opening camera…', scanning: 'Recognizing book locally…', copying: 'Copying model…', ready: 'Model ready',
+      scan: 'Photograph book', openingCamera: 'Opening camera…', scanning: 'Recognizing book locally…', enriching: 'Enriching metadata…', copying: 'Copying model…', ready: 'Model ready',
       review: 'Review recognized book', title: 'Title', author: 'Author', confidence: 'Confidence', add: 'Add to library', cancel: 'Cancel',
+      metadata: 'Metadata', genre: 'Genre', year: 'First published', languageValue: 'Language', originalLanguage: 'Original language', series: 'Series', summary: 'Summary', mainIdea: 'Main idea', openLibrary: 'Open Library',
       duplicate: 'A similar entry already exists. Add it anyway?', saved: 'Book added.', modelRequired: 'Import a local .litertlm model first.'
     };
   }
@@ -134,17 +136,35 @@
     }
   }
 
+  function metadataRow(label, value) {
+    if (value == null || value === '' || (Array.isArray(value) && value.length === 0)) return '';
+    const text = Array.isArray(value) ? value.join(' · ') : value;
+    return `<div style="display:grid;grid-template-columns:120px 1fr;gap:10px;padding:7px 0;border-top:1px solid var(--rule);font-size:13px"><div style="font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-3)">${escapeHtml(label)}</div><div style="font-family:var(--serif);line-height:1.35">${escapeHtml(text)}</div></div>`;
+  }
+
   function openReview(result) {
     const L = labels();
     const { overlay, sheet } = sheetBase('android-book-review');
     const confidence = Math.round((Number(result.confidence) || 0) * 100);
+    const metadata = [
+      metadataRow(L.genre, result.genre),
+      metadataRow(L.year, result.year_published),
+      metadataRow(L.languageValue, result.language),
+      metadataRow(L.originalLanguage, result.original_language),
+      metadataRow(L.series, result.series),
+      metadataRow(L.openLibrary, result.openlibrary_work_id),
+      metadataRow(L.summary, result.summary),
+      metadataRow(L.mainIdea, result.main_idea),
+    ].join('');
+
     sheet.innerHTML = `
       <div class="display" style="font-size:24px;margin-bottom:18px">${L.review}</div>
       <label style="display:block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin-bottom:6px">${L.title}</label>
       <input id="android-book-title" value="${escapeHtml(result.title)}" style="box-sizing:border-box;width:100%;border:1px solid var(--rule);background:transparent;padding:12px;font-family:var(--serif);font-size:17px;margin-bottom:15px;color:var(--ink)" />
       <label style="display:block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin-bottom:6px">${L.author}</label>
       <input id="android-book-author" value="${escapeHtml(result.author)}" style="box-sizing:border-box;width:100%;border:1px solid var(--rule);background:transparent;padding:12px;font-family:var(--serif);font-size:17px;margin-bottom:12px;color:var(--ink)" />
-      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin-bottom:20px">${L.confidence}: ${confidence}%</div>
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin-bottom:18px">${L.confidence}: ${confidence}%</div>
+      ${metadata ? `<div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin:4px 0 6px">${L.metadata}</div>${metadata}<div style="height:16px"></div>` : ''}
       <button id="android-book-add" style="width:100%;border-top:1px solid var(--ink);padding:15px 2px;text-align:left;font-family:var(--sans);font-size:15px;color:var(--oxblood)">${L.add}</button>
       <button id="android-book-cancel" style="width:100%;border-top:1px solid var(--rule);padding:15px 2px;text-align:left;font-family:var(--sans);font-size:15px">${L.cancel}</button>
     `;
@@ -185,17 +205,19 @@
 
   window.__bookScanStatus = function (status) {
     if (status === 'running') showBusy(labels().scanning);
+    if (status === 'enriching') showBusy(labels().enriching);
   };
 
   window.__bookScanResult = function (base64, error) {
     removeBusy();
-    if (error) { console.error(error); return; }
+    if (error) { console.error(error); alert(error); return; }
     try {
       const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
       const json = new TextDecoder('utf-8').decode(bytes);
       openReview(JSON.parse(json));
     } catch (e) {
       console.error(e);
+      alert(String(e));
     }
   };
 
