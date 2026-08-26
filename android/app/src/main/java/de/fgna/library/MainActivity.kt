@@ -310,6 +310,80 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface
+        fun findDuplicateBooks(): String {
+            return runCatching {
+                val root = JSONObject(activeJsonForExport())
+                val books = root.getJSONArray("books")
+                val grouped = linkedMapOf<String, MutableList<Pair<Int, JSONObject>>>()
+
+                for (index in 0 until books.length()) {
+                    val book = books.optJSONObject(index) ?: continue
+                    val titleKey = normalize(book.optString("title"))
+                    val authorKey = normalize(book.optString("author"))
+                    if (titleKey.isBlank() || authorKey.isBlank()) continue
+                    grouped.getOrPut("$titleKey\u0000$authorKey") { mutableListOf() }.add(index to book)
+                }
+
+                val groups = JSONArray()
+                var removableCount = 0
+                grouped.values.filter { it.size > 1 }.forEach { entries ->
+                    removableCount += entries.size - 1
+                    val first = entries.first().second
+                    val items = JSONArray()
+                    entries.forEach { (index, book) ->
+                        items.put(JSONObject().apply {
+                            put("index", index)
+                            put("title", book.optString("title"))
+                            put("author", book.optString("author"))
+                            put("year_published", if (book.isNull("year_published")) JSONObject.NULL else book.opt("year_published"))
+                            put("language", book.optString("language"))
+                            put("openlibrary_work_id", if (book.isNull("openlibrary_work_id")) JSONObject.NULL else book.opt("openlibrary_work_id"))
+                            put("has_summary", book.optString("summary").isNotBlank())
+                        })
+                    }
+                    groups.put(JSONObject().apply {
+                        put("title", first.optString("title"))
+                        put("author", first.optString("author"))
+                        put("entries", items)
+                    })
+                }
+
+                JSONObject()
+                    .put("ok", true)
+                    .put("groups", groups)
+                    .put("groupCount", groups.length())
+                    .put("duplicateCount", removableCount)
+                    .toString()
+            }.getOrElse { error ->
+                JSONObject().put("ok", false).put("error", error.message ?: "Duplikatsuche fehlgeschlagen").toString()
+            }
+        }
+
+        @JavascriptInterface
+        fun deleteBookEntries(indicesJson: String): String {
+            return runCatching {
+                val requested = JSONArray(indicesJson)
+                val indices = linkedSetOf<Int>()
+                for (i in 0 until requested.length()) {
+                    val index = requested.optInt(i, -1)
+                    if (index >= 0) indices.add(index)
+                }
+                require(indices.isNotEmpty()) { "Keine Einträge ausgewählt." }
+
+                val root = JSONObject(activeJsonForExport())
+                val books = root.getJSONArray("books")
+                indices.forEach { require(it < books.length()) { "Katalog wurde zwischenzeitlich geändert." } }
+                indices.sortedDescending().forEach { books.remove(it) }
+                cacheFile().writeText(root.toString(2), Charsets.UTF_8)
+                prefs.edit().putBoolean(PREF_MANUAL_OVERRIDE, true).apply()
+
+                JSONObject().put("ok", true).put("deleted", indices.size).toString()
+            }.getOrElse { error ->
+                JSONObject().put("ok", false).put("error", error.message ?: "Einträge konnten nicht gelöscht werden").toString()
+            }
+        }
+
+        @JavascriptInterface
         fun reloadLibrary() {
             runOnUiThread { loadApp() }
         }
