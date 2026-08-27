@@ -12,7 +12,6 @@ internal object BookMetadataEnricher {
     private const val USER_AGENT = "FreyaBooks/0.1 (personal library app)"
 
     fun enrich(
-        modelPath: String,
         recognized: JSONObject,
         catalogJson: String,
     ): JSONObject {
@@ -23,7 +22,7 @@ internal object BookMetadataEnricher {
 
         val prompt = buildPrompt(title, author, bibliographic, genres)
         val semantic = runCatching {
-            parseJsonObject(LocalBookInference.enrich(modelPath, prompt))
+            parseJsonObject(LocalBookInference.enrich(prompt))
         }.getOrElse { JSONObject() }
 
         return normalizeResult(recognized, bibliographic, semantic, genres)
