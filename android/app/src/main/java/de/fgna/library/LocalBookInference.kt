@@ -25,7 +25,7 @@ internal object LocalBookInference {
 
     fun activeModelName(): String = runCatching { withService { it.activeModelName } }.getOrDefault("")
 
-    fun identify(modelPath: String, imagePath: String): String {
+    fun identify(imagePath: String): String {
         val image = File(imagePath)
         require(image.isFile && image.length() > 0L) { "Bilddatei fehlt." }
         return withService { service ->
@@ -35,7 +35,7 @@ internal object LocalBookInference {
         }
     }
 
-    fun enrich(modelPath: String, prompt: String): String =
+    fun enrich(prompt: String): String =
         withService { service -> awaitResult { callback -> service.generate(prompt, callback) } }
 
     private fun <T> withService(block: (ILlmService) -> T): T {
