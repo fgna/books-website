@@ -31,6 +31,7 @@ class MainActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        deleteLegacyLocalModel()
 
         val assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
@@ -82,7 +83,6 @@ class MainActivity : Activity() {
         when (requestCode) {
             REQUEST_IMPORT -> data?.data?.let(::importBooksJson)
             REQUEST_EXPORT -> data?.data?.let(::exportBooksJson)
-            REQUEST_MODEL_IMPORT -> data?.data?.let(::importLocalModel)
         }
     }
 
@@ -114,43 +114,15 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun importLocalModel(uri: Uri) {
-        evaluate("window.__bookModelStatus && window.__bookModelStatus('copying', null);")
-        ioExecutor.execute {
-            runCatching {
-                val destination = modelFile()
-                destination.parentFile?.mkdirs()
-                val temporary = File(destination.parentFile, "model.litertlm.part")
-                temporary.delete()
-                contentResolver.openInputStream(uri).use { input ->
-                    requireNotNull(input) { "Modelldatei konnte nicht geöffnet werden." }
-                    temporary.outputStream().buffered().use { output -> input.copyTo(output, DEFAULT_BUFFER_SIZE) }
-                }
-                check(temporary.length() > 0L) { "Modelldatei ist leer." }
-                destination.delete()
-                check(temporary.renameTo(destination)) { "Modelldatei konnte nicht gespeichert werden." }
-                destination.length()
-            }.onSuccess { bytes ->
-                val mb = bytes / (1024.0 * 1024.0)
-                evaluate("window.__bookModelStatus && window.__bookModelStatus('ready', ${JSONObject.quote(String.format(Locale.US, "%.0f MB", mb))});")
-            }.onFailure { error ->
-                evaluate("window.__bookModelStatus && window.__bookModelStatus('error', ${JSONObject.quote(error.message ?: "Modellimport fehlgeschlagen")});")
-            }
-        }
-    }
-
     private fun identifyCapturedBook(file: File) {
         pendingMetadata = null
         evaluate("window.__bookScanStatus && window.__bookScanStatus('running', null);")
         ioExecutor.execute {
             runCatching {
-                val model = modelFile().takeIf { it.isFile && it.length() > 0L }
-                    ?: error("Kein lokales .litertlm-Modell importiert.")
-                val raw = LocalBookInference.identify(model.absolutePath, file.absolutePath)
+                val raw = LocalBookInference.identify(file.absolutePath)
                 val recognized = parseRecognition(raw)
                 evaluate("window.__bookScanStatus && window.__bookScanStatus('enriching', null);")
                 BookMetadataEnricher.enrich(
-                    modelPath = model.absolutePath,
                     recognized = recognized,
                     catalogJson = activeJsonForExport(),
                 )
@@ -212,13 +184,10 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface
-        fun hasLocalBookModel(): Boolean = modelFile().let { it.isFile && it.length() > 0L }
+        fun isLlmServiceReady(): Boolean = LocalBookInference.isReady()
 
         @JavascriptInterface
-        fun getLocalBookModelSize(): String {
-            val file = modelFile().takeIf { it.isFile && it.length() > 0L } ?: return ""
-            return String.format(Locale.US, "%.0f MB", file.length() / (1024.0 * 1024.0))
-        }
+        fun getLlmServiceModelName(): String = LocalBookInference.activeModelName()
 
         @JavascriptInterface
         fun importBooks() {
@@ -248,25 +217,8 @@ class MainActivity : Activity() {
         }
 
         @JavascriptInterface
-        fun importLocalBookModel() {
-            runOnUiThread {
-                startActivityForResult(
-                    Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "*/*"
-                    },
-                    REQUEST_MODEL_IMPORT
-                )
-            }
-        }
-
-        @JavascriptInterface
         fun captureBook() {
             runOnUiThread {
-                if (!hasLocalBookModel()) {
-                    showNativeError("Bitte zuerst in Einstellungen ein lokales .litertlm-Modell importieren.")
-                    return@runOnUiThread
-                }
                 val directory = File(cacheDir, "book-captures").apply { mkdirs() }
                 val output = File(directory, "book-${System.currentTimeMillis()}.jpg")
                 pendingCapture = output
@@ -519,7 +471,12 @@ class MainActivity : Activity() {
 
     private fun cacheFile() = File(filesDir, "books-cache.json")
 
-    private fun modelFile() = File(File(noBackupFilesDir, "local-book-model"), "model.litertlm")
+    private fun deleteLegacyLocalModel() {
+        val directory = File(noBackupFilesDir, "local-book-model")
+        runCatching { File(directory, "model.litertlm").delete() }
+        runCatching { File(directory, "model.litertlm.part").delete() }
+        runCatching { directory.delete() }
+    }
 
     private fun showNativeError(message: String) {
         evaluate("alert(${JSONObject.quote(message)});")
@@ -532,7 +489,6 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_IMPORT = 1001
         private const val REQUEST_EXPORT = 1002
-        private const val REQUEST_MODEL_IMPORT = 1003
         private const val REQUEST_CAPTURE = 1004
         private const val PREF_MANUAL_OVERRIDE = "manual_books_override"
         private const val PREF_LANGUAGE = "ui_language"
