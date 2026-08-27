@@ -1,4 +1,4 @@
-// Android-only settings, JSON import/export and local Gemma book capture.
+// Android-only settings, JSON import/export and central LLM-backed book capture.
 (function () {
   if (!window.AndroidBookSource) return;
 
@@ -19,19 +19,19 @@
     return isGerman() ? {
       settings: 'Einstellungen', language: 'Sprache', source: 'Datenquelle', imported: 'Lokaler Katalog', remote: 'Remote-Synchronisation',
       importJson: 'JSON importieren', exportJson: 'JSON exportieren', useRemote: 'Remote-Daten wieder verwenden', close: 'Schließen',
-      localAi: 'Lokale Bucherkennung', importModel: 'Gemma .litertlm importieren', noModel: 'Kein Modell importiert',
-      scan: 'Buch fotografieren', openingCamera: 'Kamera wird geöffnet…', scanning: 'Buch wird lokal erkannt…', enriching: 'Metadaten werden ergänzt…', copying: 'Modell wird kopiert…', ready: 'Modell bereit',
+      localAi: 'Android LLM Service', serviceReady: 'Modell bereit', serviceUnavailable: 'Service oder Modell nicht bereit',
+      scan: 'Buch fotografieren', openingCamera: 'Kamera wird geöffnet…', scanning: 'Buch wird lokal erkannt…', enriching: 'Metadaten werden ergänzt…',
       review: 'Erkanntes Buch prüfen', title: 'Titel', author: 'Autor', confidence: 'Sicherheit', add: 'Zur Bibliothek hinzufügen', addAnyway: 'Trotzdem hinzufügen', cancel: 'Abbrechen',
       metadata: 'Metadaten', genre: 'Genre', year: 'Erstveröffentlichung', languageValue: 'Sprache', originalLanguage: 'Originalsprache', series: 'Reihe', summary: 'Kurzbeschreibung', mainIdea: 'Kernidee', openLibrary: 'Open Library',
-      duplicate: 'Ein ähnlicher Eintrag existiert bereits.', saved: 'Buch hinzugefügt.', modelRequired: 'Bitte zuerst ein lokales .litertlm-Modell importieren.'
+      duplicate: 'Ein ähnlicher Eintrag existiert bereits.', saved: 'Buch hinzugefügt.'
     } : {
       settings: 'Settings', language: 'Language', source: 'Data source', imported: 'Local catalog', remote: 'Remote sync',
       importJson: 'Import JSON', exportJson: 'Export JSON', useRemote: 'Use remote data again', close: 'Close',
-      localAi: 'Local book recognition', importModel: 'Import Gemma .litertlm', noModel: 'No model imported',
-      scan: 'Photograph book', openingCamera: 'Opening camera…', scanning: 'Recognizing book locally…', enriching: 'Enriching metadata…', copying: 'Copying model…', ready: 'Model ready',
+      localAi: 'Android LLM Service', serviceReady: 'Model ready', serviceUnavailable: 'Service or model not ready',
+      scan: 'Photograph book', openingCamera: 'Opening camera…', scanning: 'Recognizing book locally…', enriching: 'Enriching metadata…',
       review: 'Review recognized book', title: 'Title', author: 'Author', confidence: 'Confidence', add: 'Add to library', addAnyway: 'Add anyway', cancel: 'Cancel',
       metadata: 'Metadata', genre: 'Genre', year: 'First published', languageValue: 'Language', originalLanguage: 'Original language', series: 'Series', summary: 'Summary', mainIdea: 'Main idea', openLibrary: 'Open Library',
-      duplicate: 'A similar entry already exists.', saved: 'Book added.', modelRequired: 'Import a local .litertlm model first.'
+      duplicate: 'A similar entry already exists.', saved: 'Book added.'
     };
   }
 
@@ -52,12 +52,22 @@
     return { overlay, sheet };
   }
 
+  function readServiceStatus() {
+    try {
+      const ready = !!native.isLlmServiceReady();
+      const modelName = ready && native.getLlmServiceModelName ? String(native.getLlmServiceModelName() || '') : '';
+      return { ready, modelName };
+    } catch (e) {
+      console.error('Android LLM Service status check failed', e);
+      return { ready: false, modelName: '' };
+    }
+  }
+
   function openSettings() {
     if (document.getElementById('android-settings-overlay')) return;
     const L = labels();
     const imported = !!native.isManualOverride();
-    const hasModel = !!native.hasLocalBookModel();
-    const modelSize = hasModel ? native.getLocalBookModelSize() : '';
+    const service = readServiceStatus();
     const currentLang = isGerman() ? 'de' : 'en';
     const { overlay, sheet } = sheetBase('android-settings-overlay');
 
@@ -77,8 +87,7 @@
       <button id="android-export-json" style="width:100%;text-align:left;border-top:1px solid var(--rule);padding:15px 2px;font-family:var(--sans);font-size:15px">${L.exportJson}</button>
       ${imported ? `<button id="android-use-remote" style="width:100%;text-align:left;border-top:1px solid var(--rule);padding:15px 2px;font-family:var(--sans);font-size:15px;color:var(--oxblood)">${L.useRemote}</button>` : ''}
       <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin:24px 0 5px">${L.localAi}</div>
-      <div id="android-model-status" style="font-family:var(--serif);font-size:15px;margin-bottom:8px">${hasModel ? `${L.ready} · ${escapeHtml(modelSize)}` : L.noModel}</div>
-      <button id="android-import-model" style="width:100%;text-align:left;border-top:1px solid var(--rule);padding:15px 2px;font-family:var(--sans);font-size:15px">${L.importModel}</button>
+      <div id="android-model-status" style="font-family:var(--serif);font-size:15px;margin-bottom:8px">${service.ready ? `${L.serviceReady}${service.modelName ? ` · ${escapeHtml(service.modelName)}` : ''}` : L.serviceUnavailable}</div>
     `;
 
     const close = () => overlay.remove();
@@ -88,7 +97,6 @@
     sheet.querySelector('#android-lang-de').onclick = () => { if (currentLang !== 'de') native.setLanguage('de'); };
     sheet.querySelector('#android-import-json').onclick = () => { close(); native.importBooks(); };
     sheet.querySelector('#android-export-json').onclick = () => { close(); native.exportBooks(); };
-    sheet.querySelector('#android-import-model').onclick = () => { close(); native.importLocalBookModel(); };
     const remote = sheet.querySelector('#android-use-remote');
     if (remote) remote.onclick = () => { close(); native.useRemoteBooks(); };
   }
@@ -113,15 +121,8 @@
       event.stopPropagation();
     }
     const L = labels();
-    let hasModel = false;
-    try {
-      hasModel = !!native.hasLocalBookModel();
-    } catch (e) {
-      console.error('Local model check failed', e);
-      openSettings();
-      return;
-    }
-    if (!hasModel) {
+    const service = readServiceStatus();
+    if (!service.ready) {
       openSettings();
       return;
     }
@@ -205,16 +206,6 @@
       native.reloadLibrary();
     };
   }
-
-  window.__bookModelStatus = function (status, detail) {
-    const L = labels();
-    if (status === 'copying') showBusy(L.copying);
-    else {
-      removeBusy();
-      if (status === 'error') console.error(detail || 'Model import failed');
-      if (status === 'ready') console.info(`${L.ready}${detail ? ` · ${detail}` : ''}`);
-    }
-  };
 
   window.__bookScanStatus = function (status) {
     if (status === 'running') showBusy(labels().scanning);
