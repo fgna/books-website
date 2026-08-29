@@ -1,0 +1,41 @@
+# Personal catalog and runtime data
+books.json
+*.db
+*.sqlite
+*.sqlite3
+*.bak
+*.backup
+.env
+.env.*
+!.env.example
+
+# Book photos and local media
+photos/
+book-photos/
+
+# Model files
+*.gguf
+*.tflite
+*.onnx
+*.bin
+*.safetensors
+
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local tooling
+node_modules/
+*.log
