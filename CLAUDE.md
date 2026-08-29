@@ -1,49 +1,22 @@
-# My Books Database
+# Personal Library agent guidance
 
-A personal book catalog stored as a JSON file, populated from photos of physical books.
+Personal Library is a public book-catalog application with two clients: a web interface and an Android app. Users may use either client independently or both with the same portable JSON catalog format.
 
-## Configuration
+This repository contains product code, documentation and privacy-safe sample data. Do not add a user's real catalog, book photos, credentials, backups, databases, model files or other private runtime data to the repository.
 
-There are two separate language settings:
+## Repository structure
 
-**1. Content language** — the language used for data values (genre names, language names, summaries):
+- web application files live in the repository root
+- `android/` contains the Android app
+- `docs/` contains user and workflow documentation
+- `books.example.json` is the public example catalog
+- `books.json` is runtime/user data and is ignored by Git
 
-```
-MY_LANGUAGE = German
-```
+## Catalog format
 
-Change `German` to any language (e.g. `English`, `French`, `Spanish`). Field **keys** always stay in English.
+A catalog is a JSON array of book objects. Use `books.example.json` as the minimal public example. Existing application code may support additional metadata fields.
 
-**2. UI language** — the language of the web app interface (labels, buttons, filter names). Set in `docker-compose.yml`:
-
-```yaml
-environment:
-  LIB_LANG: de    # 'en' (English) or 'de' (German)
-```
-
-Only `en` and `de` are supported for the UI. MY_LANGUAGE can be any language regardless of the UI setting.
-
----
-
-## Repository Structure
-
-- `books.json` — the main database; each entry follows the schema below. Created automatically on first use.
-- `CLAUDE.md` — this file
-
-If this is a `books-website` checkout, the design files (`index.html`, `app.jsx`, etc.) also live here. `books.json` is the data layer that feeds the website.
-
-## How to Add Books
-
-1. Take a clear photo of the book cover or spine (a whole shelf works too).
-2. Share the photo in this Claude Code session.
-3. Claude will extract the metadata and append a new entry to `books.json`. If the file does not exist yet, Claude will create it as an empty array `[]` first.
-4. If a book cannot be identified from the photo, Claude will ask for clarification.
-
-When committing, ask Claude: *"Commit and push the changes"*.
-
-Do not commit `books.json` when working in a `books-website` checkout — it is provided at runtime via Docker.
-
-## Book Entry Schema
+Typical fields include:
 
 ```json
 {
@@ -56,47 +29,35 @@ Do not commit `books.json` when working in a `books-website` checkout — it is 
   "summary": "string",
   "summary_en": "string | null",
   "read": "true | false | null",
-  "year_published": "1984 | null",
+  "year_published": "integer | null",
   "main_idea": "string | null",
   "main_idea_en": "string | null",
-  "openlibrary_work_id": "OL123456W | null",
+  "openlibrary_work_id": "string | null",
   "wikipedia_url": "string | null",
   "original_language": "string | null",
   "country_of_origin": "string | null",
   "period": "string | null",
   "rating": "1 | 2 | 3 | 4 | 5 | null",
-  "mood": ["string | null"],
+  "mood": ["string"],
   "series": "string | null"
 }
 ```
 
-## Language Convention
+Field keys stay in English. Preserve existing catalog vocabulary and conventions when editing data.
 
-Field **keys** are always in English. Field **values** for controlled-vocabulary fields (`genre`, `language`, `original_language`, `summary`, `main_idea`) are written in the language set in MY_LANGUAGE above.
+## Product workflows
 
-When adding a new book, use genre and language values already present in `books.json` for consistency. If this is a `books-website` checkout, refer to `data.jsx` (FAMILY_DEFS) for the canonical genre vocabulary.
+For a large existing collection, the documented bulk workflow uses shelf or book photos with a multimodal AI assistant to create or extend a catalog in batches. See `docs/bulk-digitization.md`.
 
-## Conventions
+For ongoing maintenance, the Android app can add books from photos, edit metadata, import/export JSON, manage duplicates and maintain local backups.
 
-- `title`: the title as it appears on the copy in the library (may be a translation).
-- `original_title`: the title in the work's original language. Set to `null` if the same as `title` or unknown.
-- `genre` and `keywords` are arrays (a book can belong to multiple categories).
-- `language` and `original_language` use the name of the language in MY_LANGUAGE (e.g. if MY_LANGUAGE is English: `"German"`, `"French"`; if German: `"Deutsch"`, `"Französisch"`).
-- `summary` is a concise 2–4 sentence description of the book's content, written in MY_LANGUAGE.
-- `summary_en`: English translation of `summary`. Set to `null` if MY_LANGUAGE is already English, or if unknown.
-- `main_idea`: a single sentence distilling the book's central thesis or argument, in MY_LANGUAGE. Set to `null` if not applicable (e.g. reference books, dictionaries) or unknown.
-- `main_idea_en`: English translation of `main_idea`. Set to `null` if MY_LANGUAGE is already English, or if unknown.
-- Entries are kept in the order they were added.
-- `read`: three-state field — `null` = status unknown (default); `false` = user has not read the book; `true` = user has read the book. Claude must update this field immediately whenever the user provides this information.
-- `year_published`: integer representing the year the original work was first published in any language (use the year of composition for ancient works). Set to `null` if unknown.
-- `openlibrary_work_id`: the Open Library Work ID (e.g. `"OL123456W"`). Set to `null` if not found.
-- `original_language`: the language the work was originally written in. Distinct from `language` (the reading copy's language). Set to `null` if unknown.
-- `country_of_origin`: the country most associated with the work's origin or author nationality. Set to `null` if unknown or not applicable.
-- `period`: a string describing the historical or cultural period (e.g. `"19th century"`, `"Cold War"`, `"Ancient Rome"`). Set to `null` if unknown or not applicable.
-- `rating`: integer 1–5 representing personal rating. Set to `null` if unrated.
-- `mood`: array of mood/atmosphere tags describing the reading experience (e.g. `["Dark", "Thoughtful"]`). Set to `null` if unknown.
-- `series`: name of the series the book belongs to. Set to `null` if standalone.
+The Android photo flow delegates inference to Android LLM Service through its Binder interface. Do not add app-local API credentials or silently bypass that boundary.
 
-## Filling in Missing Information
+## Development rules
 
-`missing-info.md` tracks entries where `year_published` or `author` is unknown. Whenever new information becomes available — from user input, a photo, or context in the conversation — Claude must immediately update the relevant fields in `books.json` and remove the corresponding rows from `missing-info.md`. The same applies to any other `null` field (`main_idea`, `read`) if the user provides the information.
+- Keep the web and Android clients compatible with the same catalog format.
+- Keep personal runtime data outside the public repository.
+- Never commit credentials, `.env` files, keystores, APKs, databases, backups, book photos or model binaries.
+- Avoid dependencies on a particular user's directory layout or a separate `my-books` repository.
+- Prefer explicit errors over silent fallback when an inference provider or required capability is unavailable.
+- Update documentation when setup, catalog format or user-visible workflows change.
