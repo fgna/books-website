@@ -1,177 +1,72 @@
-# Library Digitization
+# Personal Library
 
-A Step-by-Step Guide by Freya Gnam & Claude
+Personal Library is a personal book catalog with a web interface and an Android app. You can use the website, the Android app, or both. Both clients are built around the same portable JSON catalog, so the collection stays under your control and can be imported, exported and backed up without depending on a hosted library service.
 
-*Photograph your books · Let Claude extract the metadata · Browse your library in a beautiful web app*
+The project supports two complementary ways of building and maintaining a collection.
 
----
+## Start with a large existing collection
 
-**PART 1 — SET UP YOUR REPOSITORY**
+If you already own hundreds or thousands of books, entering them one by one in the Android app is not the intended starting point. Photograph shelves or groups of books and use a multimodal AI assistant such as Claude or ChatGPT to identify the books and build `books.json` in batches. Review each batch, then import the resulting catalog into Personal Library.
 
-1\. Create a GitHub account
+This bulk workflow is an intentional part of the product. See [Bulk digitization of a large book collection](docs/bulk-digitization.md) for the full process.
 
-If you do not already have one, go to github.com and sign up for a free account.
+## Choose how you use Personal Library
 
-2\. Create a new repository
+You do not need both clients.
 
-* Click the + icon in the top-right corner → New repository.
-* Give it a name, e.g. `my-books`.
-* Set visibility to Private (or Public if you want to share it).
-* Click Create repository.
+- Use the **website** if you mainly want to browse and manage your library from a desktop or browser.
+- Use the **Android app** if you mainly want a mobile library and camera-based book entry.
+- Use **both** if you want access from desktop and phone. The shared JSON format makes it possible to move the same catalog between the two clients.
 
----
+## Android app
 
-**PART 2 — CONNECT CLAUDE CODE**
+The Android app can be used to browse the collection, add newly acquired books from photos, edit metadata, import and export JSON, manage duplicates and maintain local backups.
 
-3\. Open Claude Code on the web
+Photo-based metadata extraction is routed through the separate Android LLM Service. The target architecture allows Personal Library to use the same client boundary whether inference runs directly on the phone, on a trusted local server or through an explicitly configured external API.
 
-Go to claude.ai/code and sign in. Claude Code is Anthropic's AI coding assistant — it can read and write files in your repository directly. You'll need a Claude Pro subscription.
+The Android application lives in [`android/`](android/). Android-specific build and setup information is documented in [`ANDROID.md`](ANDROID.md).
 
-4\. Connect your GitHub repository
+## Website
 
-* Click New session → Connect a repository.
-* Authorise GitHub when prompted, then select your `my-books` repository.
-* Claude Code will clone it into a secure cloud workspace.
+The web client provides a visual browser for the same JSON catalog. It is dependency-light and can be run locally, including through Docker.
 
-*The workspace is ephemeral. Changes only persist once you commit and push — Claude will do this for you when you ask.*
+### Docker
 
----
-
-**PART 3 — ADD THE CLAUDE.MD INSTRUCTION FILE**
-
-5\. Create CLAUDE.md in your repository
-
-This file tells Claude how your book database is structured and how to add new entries. Copy `CLAUDE.md` from this repository (github.com/fgna/books-website) into your `my-books` repository.
-
-At the top of the file, set your preferred language for data values:
-
-```
-MY_LANGUAGE = English
-```
-
-Change `English` to your language (e.g. `German`, `French`, `Spanish`). All genre values, language names, and summaries will be written in that language.
-
----
-
-**PART 4 — DIGITIZE YOUR BOOKS**
-
-6\. Photograph your books
-
-* A photo of the spine is usually enough.
-* You can photograph a whole shelf — Claude will identify each spine.
-
-7\. Share photos in Claude Code
-
-Drag and drop photos into the Claude Code chat, or click the paperclip to attach them. Then send:
-
-> Add these books to books.json
-
-Claude will read each spine, extract the metadata, and append the entries.
-
-8\. Review and correct
-
-Claude will show you what it added. If anything looks wrong, say so in chat and it will fix the entry. You can also ask it to fill in missing fields, update read status, or add a rating.
-
-9\. Commit and push
-
-When satisfied with the batch, ask Claude:
-
-> Commit and push the changes
-
-Claude creates a git commit and pushes it to GitHub so the data is safely stored.
-
----
-
-**PART 5 — VIEW YOUR LIBRARY**
-
-Once your `books.json` is populated, browse it in the visual web app.
-
-**Option A — Docker (recommended)**
-
-Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (free). No manual file copying — the app always reads your latest `books.json` directly.
-
-1\. Clone this repository as a sibling of your books repository:
+Clone the repository and start the web app:
 
 ```bash
-git clone https://github.com/fgna/books-website.git
+git clone https://github.com/fgna/personal-library.git
+cd personal-library
+docker compose up --build
 ```
 
-Your folders should sit side by side:
+Then open `http://localhost:8080`.
 
-```
-my-books/           ← your books repository
-  books.json
-books-website/      ← the web app
-  docker-compose.yml
-  ...
-```
-
-2\. Open `docker-compose.yml` and set your language:
-
-```yaml
-environment:
-  LIB_LANG: en    # 'en' (English) or 'de' (German)
-  # LIB_NAME: My Library   # optional — leave blank to use the default name
-```
-
-The library name defaults to **"the Library"** (en) or **"die Bibliothek"** (de). Set `LIB_NAME` to use a custom name.
-
-If your `books.json` is not in `../my-books/books.json`, set `BOOKS_JSON`:
+You can point the container at a catalog stored elsewhere:
 
 ```bash
 BOOKS_JSON=/path/to/books.json docker compose up --build
 ```
 
-3\. Build and start:
+Configuration such as interface language and library name is available through the existing web configuration/environment settings.
 
-```bash
-cd books-website
-docker compose up --build
-```
+### Static browser use
 
-4\. Open **http://localhost:8080** in your browser.
+The web UI can also be served as static files. Provide a compatible `books.json`, configure `config.js` as needed and serve/open the project through a local web server.
 
-Whenever you add books to your repository, the app picks up the updated `books.json` without a rebuild. Just refresh the page.
+## Shared catalog
 
-**Option B — Open directly in a browser (no Docker)**
+The app and website intentionally share the JSON catalog format. JSON import/export is therefore a core capability: it enables initial AI-assisted bulk digitization, portability between clients and user-controlled backups. Neither client depends on the other.
 
-1\. Fork or clone `fgna/books-website`.
+## Data ownership and privacy
 
-2\. Copy your `books.json` into the `books-website` folder:
+The repository contains application code and safe sample/schema data only. Your real `books.json`, photos, backups, credentials and other personal runtime data should remain outside the public repository.
 
-```bash
-cp ../my-books/books.json ./books.json
-```
+A private Git repository can be useful while assembling a large catalog, but it is not required. The catalog is ordinary user data and can live wherever you normally keep and back up private files.
 
-3\. Edit `config.js` to set your language and library name:
+## Repository structure
 
-```js
-window.LIB_CONFIG = {
-  lang: 'en',           // 'en' or 'de'
-  name: 'My Library',
-};
-```
-
-4\. Open `index.html` in a browser — no build step needed.
-
-Repeat step 2 each time you add books.
-
----
-
-**PART 6 — TIPS & ONGOING USE**
-
-**Adding more books later**
-
-Open a new Claude Code session on the same repository, take more photos, and repeat Part 4 above (photograph, share, review, commit).
-
-**Tracking what you have read**
-
-Tell Claude in chat: "I have read Kafka on the Shore" — it will set `read: true` for that entry immediately.
-
-**Exporting your list**
-
-Ask Claude Code to generate a CSV, HTML table, or formatted reading list from `books.json` at any time.
-
----
-
-Made with Claude Code · github.com/fgna/books-website
+- `android/` — Android application
+- `docs/` — user and workflow documentation
+- web files in the repository root — browser interface
+- `books.json` — development/sample catalog; do not replace it with a personal catalog in the public repository
