@@ -8,13 +8,13 @@
 
   const isGerman = () => ((window.LIB_CONFIG && window.LIB_CONFIG.lang) || 'en') === 'de';
   const labels = () => isGerman() ? {
-    action:'Duplikate suchen', searching:'Duplikate werden gesucht…', title:'Mögliche Duplikate', none:'Keine möglichen Duplikate gefunden.', close:'Schließen',
+    action:'Duplikate suchen', searching:'Duplikate werden gesucht…', ignoring:'Duplikat wird ausgeblendet…', title:'Mögliche Duplikate', none:'Keine möglichen Duplikate gefunden.', close:'Schließen',
     merge:'Ausgewählte zusammenführen', edit:'Bearbeiten', save:'Speichern', cancel:'Abbrechen', del:'Ausgewählte löschen', confirm:'Löschen bestätigen', notDuplicate:'Kein Duplikat',
     similarity:'Ähnlichkeit', error:'Duplikate konnten nicht verarbeitet werden.', mergeTitle:'Einträge zusammenführen',
     hint:'Die vollständigsten Metadaten wurden vorausgewählt. Bitte vor dem Speichern prüfen.', titleField:'Titel', authorField:'Autor', originalTitle:'Originaltitel',
     genre:'Genre', year:'Jahr', language:'Sprache', originalLanguage:'Originalsprache', series:'Reihe', summary:'Kurzbeschreibung', mainIdea:'Kernidee'
   } : {
-    action:'Find duplicates', searching:'Searching for duplicates…', title:'Possible duplicates', none:'No possible duplicates found.', close:'Close',
+    action:'Find duplicates', searching:'Searching for duplicates…', ignoring:'Hiding duplicate suggestion…', title:'Possible duplicates', none:'No possible duplicates found.', close:'Close',
     merge:'Merge selected', edit:'Edit', save:'Save', cancel:'Cancel', del:'Delete selected', confirm:'Confirm deletion', notDuplicate:'Not a duplicate',
     similarity:'Similarity', error:'Duplicates could not be processed.', mergeTitle:'Merge entries',
     hint:'The most complete metadata was preselected. Review it before saving.', titleField:'Title', authorField:'Author', originalTitle:'Original title',
@@ -68,11 +68,11 @@
     sheet.style.cssText='width:100%;height:92vh;max-height:92vh;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;background:var(--paper);border-top:1px solid var(--ink);padding:20px 18px calc(20px + var(--safe-bot));box-shadow:0 -18px 50px rgba(28,28,30,.16);pointer-events:auto;';
     overlay.appendChild(sheet); document.body.appendChild(overlay); return {overlay,sheet};
   }
-  function busyScreen() {
+  function busyScreen(message) {
     document.getElementById('android-duplicates-busy')?.remove();
     const L=labels(), busy=document.createElement('div'); busy.id='android-duplicates-busy';
-    busy.style.cssText='position:fixed;inset:0;z-index:355;background:rgba(248,246,241,.96);display:grid;place-items:center;padding:30px;text-align:center;color:var(--ink);';
-    busy.innerHTML=`<div><div style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px">${isGerman()?'Bibliothek':'Library'}</div><div style="font-family:var(--serif);font-size:18px">${esc(L.searching)}</div></div>`;
+    busy.style.cssText='position:fixed;inset:0;z-index:410;background:rgba(248,246,241,.96);display:grid;place-items:center;padding:30px;text-align:center;color:var(--ink);pointer-events:auto;';
+    busy.innerHTML=`<div><div style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px">${isGerman()?'Bibliothek':'Library'}</div><div style="font-family:var(--serif);font-size:18px">${esc(message||L.searching)}</div><div class="boot-bar" style="margin-top:18px"></div></div>`;
     document.body.appendChild(busy); return busy;
   }
 
@@ -114,7 +114,7 @@
     const checks=()=>Array.from(sheet.querySelectorAll('.dup-check'));
     sheet.querySelectorAll('.dup-edit').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const entry=groups[Number(btn.dataset.group)].entries[Number(btn.dataset.entry)];editSheet(entry,()=>renderDuplicates(overlay,sheet));}));
     sheet.querySelectorAll('.dup-merge').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const gi=Number(btn.dataset.group),chosen=checks().filter(c=>c.checked&&Number(c.dataset.group)===gi).map(c=>groups[gi].entries.find(item=>Number(item.index)===Number(c.dataset.index))).filter(Boolean);if(chosen.length<2){btn.textContent=L.merge+' (2+)';return;}mergeSheet(chosen,()=>renderDuplicates(overlay,sheet));}));
-    sheet.querySelectorAll('.dup-not').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const gi=Number(btn.dataset.group);const section=btn.closest('.dup-group');ignoreGroup(groups[gi]);if(section){section.style.display='none';window.setTimeout(()=>renderDuplicates(overlay,sheet),0);}else renderDuplicates(overlay,sheet);}));
+    sheet.querySelectorAll('.dup-not').forEach(btn=>btn.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const gi=Number(btn.dataset.group),section=btn.closest('.dup-group'),busy=busyScreen(L.ignoring);window.setTimeout(()=>{ignoreGroup(groups[gi]);if(section)section.remove();const remaining=sheet.querySelectorAll('.dup-group');if(!remaining.length){sheet.innerHTML=`<div class="display" style="font-size:24px;margin-bottom:18px">${esc(L.title)}</div><div style="font-family:var(--serif);font-size:17px;margin-bottom:22px">${esc(L.none)}</div><button id="d-close" style="width:100%;border-top:1px solid var(--rule);padding:15px 2px;text-align:left;touch-action:manipulation">${esc(L.close)}</button>`;sheet.querySelector('#d-close').onclick=close;}busy.remove();},40);}));
     let armed=false,confirm=sheet.querySelector('#d-confirm');sheet.querySelector('#d-delete').onclick=()=>{const indices=checks().filter(c=>c.checked).map(c=>Number(c.dataset.index));if(!indices.length)return;if(!armed){armed=true;confirm.style.display='block';return;}let r;try{r=JSON.parse(native.deleteBookEntries(JSON.stringify(indices)));}catch(e){r={ok:false,error:String(e)}}if(!r.ok){confirm.textContent=r.error||L.error;armed=false;return;}catalogChanged=true;renderDuplicates(overlay,sheet);};
   }
 
