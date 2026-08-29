@@ -1,12 +1,8 @@
 # Android app
 
-The Android app is a thin WebView shell around the existing `mobile.html` UI. The website layout and React UI stay shared with the browser version.
+The Android client lives in `android/`. It shares the Personal Library catalog format and visual assets with the web client, while adding native Android capabilities such as camera capture, local backup and Android LLM Service integration.
 
-## Remote books sync
-
-Pass the URL that serves the current `books.json` as a Gradle property. Android downloads it natively, validates that it contains a `books` array, caches the last successful response in app storage, and falls back to that cached copy if the network request fails.
-
-No GitHub token is embedded in the APK. For a private `my-books` repository, expose `books.json` through your existing books web server or another authenticated/private-network endpoint.
+The website and Android app are independent clients. Users can use the Android app only, the website only, or both with the same portable JSON catalog format.
 
 ## Build
 
@@ -14,33 +10,41 @@ From the repository root:
 
 ```bash
 cd android
-sh ./gradlew assembleDebug -PbooksUrl=https://YOUR-HOST/books.json
+./gradlew assembleDebug
 ```
 
-APK:
+The debug APK is written to:
 
 ```text
 android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Install on a connected Android device:
+Install it on a connected device with:
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-For an emulator serving the existing Docker app on the host machine, `http://10.0.2.2:8080/books.json` can be used as the URL. Physical devices need an address they can actually reach, preferably HTTPS.
+## Catalog data
 
-## How assets are shared
+The Android app supports the same catalog format as the web client, including JSON import/export. Real catalogs are user data and should not be committed to this public repository.
 
-The Android Gradle build copies these files from the repository root into the APK at build time:
+Use `books.example.json` in the repository root as a privacy-safe example of the format.
 
-- `mobile.html`
-- `mobile-app.jsx`
-- `data.jsx`
-- `i18n.jsx`
-- `config.js`
-- `books.json`
-- `android-books-source.js`
+## Book photos and AI metadata extraction
 
-This avoids maintaining a second Android-specific copy of the UI.
+The Android app includes a camera-based add-book workflow. Image identification and enrichment are delegated to the separate Android LLM Service through its Binder API.
+
+The Personal Library app does not bundle an API key or a private model credential. The Android LLM Service is responsible for the configured inference provider. The target service architecture supports inference directly on the phone, on a trusted local server or through an explicitly configured external API while preserving the same client boundary.
+
+If the service is missing, cannot bind, has no ready model/provider, or lacks a required capability, the app should surface an explicit error rather than silently falling back to another provider.
+
+## Local backup
+
+The Android client contains local catalog backup support. Backups are runtime/user data and must remain outside the public repository.
+
+## Shared web assets
+
+Parts of the browser UI and catalog logic are shared with Android. The Android Gradle build packages the required root-level web assets into the APK so the two clients do not need separate copies of the same interface code.
+
+When changing shared assets or catalog structure, verify both the browser interface and Android app remain compatible.

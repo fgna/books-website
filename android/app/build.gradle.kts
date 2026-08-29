@@ -38,11 +38,14 @@ android {
             include("data.jsx")
             include("i18n.jsx")
             include("config.js")
-            include("books.json")
             include("android-books-source.js")
             include("android-settings.js")
             include("android-duplicates.js")
             include("android-ui-copy.js")
+        }
+        from(rootProject.projectDir.parentFile) {
+            include("books.example.json")
+            rename("books.example.json", "books.json")
         }
         into(layout.buildDirectory.dir("generated/webAssets/www"))
     }

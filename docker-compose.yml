@@ -7,6 +7,6 @@ services:
       LIB_LANG: en          # 'en' or 'de'
       # LIB_NAME: My Library  # optional; defaults to "the Library" (en) or "die Bibliothek" (de)
     volumes:
-      # Uses ./books.json by default. Override with BOOKS_JSON=/path/to/books.json.
-      - ${BOOKS_JSON:-./books.json}:/usr/share/nginx/html/books.json:ro
+      # Starts with the privacy-safe example catalog. Point BOOKS_JSON at your real catalog when needed.
+      - ${BOOKS_JSON:-./books.example.json}:/usr/share/nginx/html/books.json:ro
     restart: unless-stopped
