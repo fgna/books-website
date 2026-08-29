@@ -252,8 +252,7 @@ class MainActivity : Activity() {
                 book.put("author", author.trim())
                 ensureCompleteSchema(book)
                 books.put(book)
-                cacheFile().writeText(root.toString(2), Charsets.UTF_8)
-                prefs.edit().putBoolean(PREF_MANUAL_OVERRIDE, true).apply()
+                saveCatalog(root)
                 pendingMetadata = null
                 JSONObject().put("ok", true).put("duplicate", false).toString()
             }.getOrElse { error ->
@@ -264,47 +263,17 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun findDuplicateBooks(): String {
             return runCatching {
-                val root = JSONObject(activeJsonForExport())
-                val books = root.getJSONArray("books")
-                val grouped = linkedMapOf<String, MutableList<Pair<Int, JSONObject>>>()
-
-                for (index in 0 until books.length()) {
-                    val book = books.optJSONObject(index) ?: continue
-                    val titleKey = normalize(book.optString("title"))
-                    val authorKey = normalize(book.optString("author"))
-                    if (titleKey.isBlank() || authorKey.isBlank()) continue
-                    grouped.getOrPut("$titleKey\u0000$authorKey") { mutableListOf() }.add(index to book)
+                val books = JSONObject(activeJsonForExport()).getJSONArray("books")
+                val groups = DuplicateMatcher.findGroups(books)
+                var duplicateCount = 0
+                for (i in 0 until groups.length()) {
+                    duplicateCount += groups.getJSONObject(i).getJSONArray("entries").length() - 1
                 }
-
-                val groups = JSONArray()
-                var removableCount = 0
-                grouped.values.filter { it.size > 1 }.forEach { entries ->
-                    removableCount += entries.size - 1
-                    val first = entries.first().second
-                    val items = JSONArray()
-                    entries.forEach { (index, book) ->
-                        items.put(JSONObject().apply {
-                            put("index", index)
-                            put("title", book.optString("title"))
-                            put("author", book.optString("author"))
-                            put("year_published", if (book.isNull("year_published")) JSONObject.NULL else book.opt("year_published"))
-                            put("language", book.optString("language"))
-                            put("openlibrary_work_id", if (book.isNull("openlibrary_work_id")) JSONObject.NULL else book.opt("openlibrary_work_id"))
-                            put("has_summary", book.optString("summary").isNotBlank())
-                        })
-                    }
-                    groups.put(JSONObject().apply {
-                        put("title", first.optString("title"))
-                        put("author", first.optString("author"))
-                        put("entries", items)
-                    })
-                }
-
                 JSONObject()
                     .put("ok", true)
                     .put("groups", groups)
                     .put("groupCount", groups.length())
-                    .put("duplicateCount", removableCount)
+                    .put("duplicateCount", duplicateCount)
                     .toString()
             }.getOrElse { error ->
                 JSONObject().put("ok", false).put("error", error.message ?: "Duplikatsuche fehlgeschlagen").toString()
@@ -314,24 +283,59 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun deleteBookEntries(indicesJson: String): String {
             return runCatching {
-                val requested = JSONArray(indicesJson)
-                val indices = linkedSetOf<Int>()
-                for (i in 0 until requested.length()) {
-                    val index = requested.optInt(i, -1)
-                    if (index >= 0) indices.add(index)
-                }
+                val indices = parseIndices(indicesJson)
                 require(indices.isNotEmpty()) { "Keine Einträge ausgewählt." }
 
                 val root = JSONObject(activeJsonForExport())
                 val books = root.getJSONArray("books")
                 indices.forEach { require(it < books.length()) { "Katalog wurde zwischenzeitlich geändert." } }
                 indices.sortedDescending().forEach { books.remove(it) }
-                cacheFile().writeText(root.toString(2), Charsets.UTF_8)
-                prefs.edit().putBoolean(PREF_MANUAL_OVERRIDE, true).apply()
+                saveCatalog(root)
 
                 JSONObject().put("ok", true).put("deleted", indices.size).toString()
             }.getOrElse { error ->
                 JSONObject().put("ok", false).put("error", error.message ?: "Einträge konnten nicht gelöscht werden").toString()
+            }
+        }
+
+        @JavascriptInterface
+        fun mergeBookEntries(indicesJson: String, mergedBookJson: String): String {
+            return runCatching {
+                val indices = parseIndices(indicesJson)
+                require(indices.size >= 2) { "Mindestens zwei Einträge zum Zusammenführen auswählen." }
+                val merged = JSONObject(mergedBookJson)
+                require(merged.optString("title").isNotBlank()) { "Titel darf nicht leer sein." }
+                ensureCompleteSchema(merged)
+
+                val root = JSONObject(activeJsonForExport())
+                val books = root.getJSONArray("books")
+                indices.forEach { require(it < books.length()) { "Katalog wurde zwischenzeitlich geändert." } }
+                indices.sortedDescending().forEach { books.remove(it) }
+                books.put(merged)
+                saveCatalog(root)
+
+                JSONObject().put("ok", true).put("merged", indices.size).toString()
+            }.getOrElse { error ->
+                JSONObject().put("ok", false).put("error", error.message ?: "Einträge konnten nicht zusammengeführt werden").toString()
+            }
+        }
+
+        @JavascriptInterface
+        fun updateBookEntry(index: Int, bookJson: String): String {
+            return runCatching {
+                val root = JSONObject(activeJsonForExport())
+                val books = root.getJSONArray("books")
+                require(index in 0 until books.length()) { "Eintrag nicht gefunden." }
+
+                val updated = JSONObject(bookJson)
+                require(updated.optString("title").isNotBlank()) { "Titel darf nicht leer sein." }
+                ensureCompleteSchema(updated)
+                books.put(index, updated)
+                saveCatalog(root)
+
+                JSONObject().put("ok", true).toString()
+            }.getOrElse { error ->
+                JSONObject().put("ok", false).put("error", error.message ?: "Eintrag konnte nicht geändert werden").toString()
             }
         }
 
@@ -403,6 +407,21 @@ class MainActivity : Activity() {
             val script = "window.__bookSourceResolve(${JSONObject.quote(requestId)}, ${JSONObject.quote(base64)}, ${JSONObject.quote(error)});"
             runOnUiThread { webView.evaluateJavascript(script, null) }
         }
+    }
+
+    private fun parseIndices(indicesJson: String): LinkedHashSet<Int> {
+        val requested = JSONArray(indicesJson)
+        val indices = linkedSetOf<Int>()
+        for (i in 0 until requested.length()) {
+            val index = requested.optInt(i, -1)
+            if (index >= 0) indices.add(index)
+        }
+        return indices
+    }
+
+    private fun saveCatalog(root: JSONObject) {
+        cacheFile().writeText(root.toString(2), Charsets.UTF_8)
+        prefs.edit().putBoolean(PREF_MANUAL_OVERRIDE, true).apply()
     }
 
     private fun findDuplicate(books: JSONArray, title: String, author: String): JSONObject? {

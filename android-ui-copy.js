@@ -44,6 +44,29 @@
     }
   }
 
+  function showDuplicateSearchProgress() {
+    document.getElementById('android-duplicate-search-progress')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'android-duplicate-search-progress';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:350;background:rgba(248,246,241,.97);display:grid;place-items:center;padding:30px;text-align:center;color:var(--ink);pointer-events:auto;';
+    overlay.innerHTML = `<div><div style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px">${isGerman() ? 'Bibliothek' : 'Library'}</div><div style="font-family:var(--serif);font-size:18px">${isGerman() ? 'Duplikate werden gesucht…' : 'Searching for duplicates…'}</div><div class="boot-bar" style="margin-top:18px"></div></div>`;
+    document.body.appendChild(overlay);
+
+    let checks = 0;
+    const timer = window.setInterval(() => {
+      checks += 1;
+      if (document.getElementById('android-duplicates-overlay') || checks > 120) {
+        window.clearInterval(timer);
+        overlay.remove();
+      }
+    }, 100);
+  }
+
+  document.addEventListener('click', event => {
+    const target = event.target && event.target.closest ? event.target.closest('#android-find-duplicates') : null;
+    if (target) showDuplicateSearchProgress();
+  }, true);
+
   const observer = new MutationObserver(mutations => {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
