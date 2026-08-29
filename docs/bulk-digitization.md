@@ -65,9 +65,3 @@ Keep an exported copy as part of your normal backup strategy.
 After the initial mass digitization, the Android app becomes the convenient everyday workflow. Use its photo-based add-book function for newly acquired books and its editing and duplicate-management features for ongoing maintenance.
 
 You can still repeat the bulk workflow later if you acquire or discover a large batch of books at once.
-
-## Using Claude Code
-
-Claude Code can automate the file-management part of the workflow when working in a private catalog repository or directory. Connect it only to a location where you are comfortable storing your catalog data, provide the Personal Library JSON format, attach shelf photos, review the proposed changes and commit them only after checking the result.
-
-The same basic workflow works with ChatGPT or another multimodal assistant: the important output is a reviewed `books.json` compatible with Personal Library, not a dependency on a particular AI provider.
