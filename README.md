@@ -40,9 +40,9 @@ cd personal-library
 docker compose up --build
 ```
 
-Then open `http://localhost:8080`.
+Then open `http://localhost:8080`. With no additional configuration, Docker starts with the privacy-safe `books.example.json` catalog so the interface is immediately usable.
 
-You can point the container at a catalog stored elsewhere:
+To use your own catalog:
 
 ```bash
 BOOKS_JSON=/path/to/books.json docker compose up --build
@@ -58,6 +58,8 @@ The web UI can also be served as static files. Provide a compatible `books.json`
 
 The app and website intentionally share the JSON catalog format. JSON import/export is therefore a core capability: it enables initial AI-assisted bulk digitization, portability between clients and user-controlled backups. Neither client depends on the other.
 
+A privacy-safe example catalog is provided as [`books.example.json`](books.example.json). Real `books.json` files are user data and are ignored by Git in this repository.
+
 ## Data ownership and privacy
 
 The repository contains application code and safe sample/schema data only. Your real `books.json`, photos, backups, credentials and other personal runtime data should remain outside the public repository.
@@ -69,4 +71,5 @@ A private Git repository can be useful while assembling a large catalog, but it 
 - `android/` — Android application
 - `docs/` — user and workflow documentation
 - web files in the repository root — browser interface
-- `books.json` — development/sample catalog; do not replace it with a personal catalog in the public repository
+- `books.example.json` — privacy-safe example catalog
+- `books.json` — local/runtime catalog data; ignored by Git
