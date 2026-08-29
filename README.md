@@ -62,9 +62,3 @@ A private Git repository can be useful while assembling a large catalog, but it 
 - `docs/` — user and workflow documentation
 - web files in the repository root — browser interface
 - `books.json` — development/sample catalog; do not replace it with a personal catalog in the public repository
-
-## Development status
-
-Personal Library is being prepared as a clean public project. Current work includes repository hygiene, final Android device validation and completion of Android LLM Service integration.
-
-See issue #17 for the public-release cleanup checklist.
