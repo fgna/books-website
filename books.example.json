@@ -1,0 +1,24 @@
+[
+  {
+    "title": "Example Book",
+    "original_title": null,
+    "author": "Example Author",
+    "genre": ["Fiction"],
+    "language": "English",
+    "keywords": ["example"],
+    "summary": "A fictional sample entry demonstrating the Personal Library catalog format.",
+    "summary_en": null,
+    "read": null,
+    "year_published": 2026,
+    "main_idea": null,
+    "main_idea_en": null,
+    "openlibrary_work_id": null,
+    "wikipedia_url": null,
+    "original_language": "English",
+    "country_of_origin": null,
+    "period": null,
+    "rating": null,
+    "mood": [],
+    "series": null
+  }
+]
