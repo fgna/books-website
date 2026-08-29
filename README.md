@@ -2,7 +2,19 @@
 
 Personal Library is a personal book catalog with a web interface and an Android app. You can use the website, the Android app, or both. Both clients are built around the same portable JSON catalog, so the collection stays under your control and can be imported, exported and backed up without depending on a hosted library service.
 
-The project supports two complementary ways of building and maintaining a collection.
+## Features
+
+- Browse and search a personal book collection on web or Android.
+- Add newly acquired books from photos in the Android app.
+- Import and export the complete catalog as portable JSON.
+- Detect, review and merge duplicate entries.
+- Keep local Android backups of the catalog.
+- Bootstrap large existing collections efficiently from shelf photos with a multimodal AI assistant.
+- Use Android LLM Service as the inference boundary for photo-based metadata extraction.
+
+## How the pieces fit together
+
+`books.json` is the portable catalog at the center of Personal Library. The website and Android app are independent clients for the same format: use either one or move the catalog between both. Android-only AI features call Android LLM Service rather than embedding a specific model provider into Personal Library.
 
 ## Start with a large existing collection
 
