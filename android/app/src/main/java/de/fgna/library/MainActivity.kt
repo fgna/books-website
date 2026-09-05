@@ -26,6 +26,7 @@ class MainActivity : Activity() {
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private val prefs by lazy { getSharedPreferences("library", MODE_PRIVATE) }
     private var pendingCapture: File? = null
+    private var pendingRecognition: JSONObject? = null
     private var pendingMetadata: JSONObject? = null
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -115,24 +116,62 @@ class MainActivity : Activity() {
     }
 
     private fun identifyCapturedBook(file: File) {
+        pendingRecognition = null
         pendingMetadata = null
         evaluate("window.__bookScanStatus && window.__bookScanStatus('running', null);")
         ioExecutor.execute {
             runCatching {
                 val raw = LocalBookInference.identify(file.absolutePath)
                 val recognized = parseRecognition(raw)
-                evaluate("window.__bookScanStatus && window.__bookScanStatus('enriching', null);")
+                pendingRecognition = JSONObject(recognized.toString())
+                evaluate("window.__bookScanStatus && window.__bookScanStatus('checking', null);")
                 BookMetadataEnricher.enrich(
                     recognized = recognized,
                     catalogJson = activeJsonForExport(),
+                    userConfirmedIdentity = false,
                 )
             }.onSuccess { result ->
-                pendingMetadata = result
-                val encoded = Base64.encodeToString(result.toString().toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-                evaluate("window.__bookScanResult && window.__bookScanResult(${JSONObject.quote(encoded)}, null);")
+                if (result.optBoolean("_identity_verified", false)) {
+                    pendingMetadata = result
+                    sendEncodedCallback("__bookScanResult", result)
+                } else {
+                    pendingMetadata = null
+                    sendEncodedCallback("__bookIdentityResult", result)
+                }
             }.onFailure { error ->
+                pendingRecognition = null
                 pendingMetadata = null
                 evaluate("window.__bookScanResult && window.__bookScanResult(null, ${JSONObject.quote(error.message ?: "Bucherkennung fehlgeschlagen")});")
+            }
+        }
+    }
+
+    private fun enrichConfirmedBook(title: String, author: String) {
+        val cleanTitle = title.trim()
+        val cleanAuthor = author.trim()
+        require(cleanTitle.isNotBlank()) { "Titel darf nicht leer sein." }
+
+        val recognized = pendingRecognition?.let { JSONObject(it.toString()) } ?: JSONObject()
+        recognized.put("title", cleanTitle)
+        recognized.put("author", cleanAuthor)
+        recognized.put("author_candidates", JSONArray().apply {
+            if (cleanAuthor.isNotBlank()) put(cleanAuthor)
+        })
+
+        ioExecutor.execute {
+            runCatching {
+                BookMetadataEnricher.enrich(
+                    recognized = recognized,
+                    catalogJson = activeJsonForExport(),
+                    userConfirmedIdentity = true,
+                )
+            }.onSuccess { result ->
+                pendingRecognition = JSONObject(recognized.toString())
+                pendingMetadata = result
+                sendEncodedCallback("__bookMetadataResult", result)
+            }.onFailure { error ->
+                pendingMetadata = null
+                evaluate("window.__bookMetadataResult && window.__bookMetadataResult(null, ${JSONObject.quote(error.message ?: "Metadaten konnten nicht ergänzt werden")});")
             }
         }
     }
@@ -147,7 +186,21 @@ class MainActivity : Activity() {
         require(start >= 0 && end > start) { "Das Modell hat kein gültiges JSON zurückgegeben." }
         val result = JSONObject(cleaned.substring(start, end + 1))
         require(result.optString("title").isNotBlank()) { "Auf dem Foto wurde kein sicherer Buchtitel erkannt." }
-        result.put("author", result.optString("author", ""))
+
+        val candidates = JSONArray()
+        val seen = linkedSetOf<String>()
+        val rawCandidates = result.optJSONArray("author_candidates")
+        if (rawCandidates != null) {
+            for (i in 0 until rawCandidates.length()) {
+                val value = rawCandidates.optString(i).trim()
+                if (value.isNotBlank() && seen.add(value)) candidates.put(value)
+            }
+        }
+        val author = result.optString("author", "").trim()
+        if (author.isNotBlank() && seen.add(author)) candidates.put(author)
+        result.put("author_candidates", candidates)
+        result.put("author", author.ifBlank { candidates.optString(0, "") })
+        result.put("language", result.optString("language", "").trim())
         val confidence = result.optDouble("confidence", 0.0).coerceIn(0.0, 1.0)
         result.put("confidence", confidence)
         return result
@@ -222,6 +275,7 @@ class MainActivity : Activity() {
                 val directory = File(cacheDir, "book-captures").apply { mkdirs() }
                 val output = File(directory, "book-${System.currentTimeMillis()}.jpg")
                 pendingCapture = output
+                pendingRecognition = null
                 pendingMetadata = null
                 startActivityForResult(
                     Intent(this@MainActivity, BookCameraActivity::class.java).apply {
@@ -230,6 +284,14 @@ class MainActivity : Activity() {
                     REQUEST_CAPTURE,
                 )
             }
+        }
+
+        @JavascriptInterface
+        fun enrichBookMetadata(title: String, author: String) {
+            runCatching { enrichConfirmedBook(title, author) }
+                .onFailure { error ->
+                    evaluate("window.__bookMetadataResult && window.__bookMetadataResult(null, ${JSONObject.quote(error.message ?: "Metadaten konnten nicht ergänzt werden")});")
+                }
         }
 
         @JavascriptInterface
@@ -253,6 +315,7 @@ class MainActivity : Activity() {
                 ensureCompleteSchema(book)
                 books.put(book)
                 saveCatalog(root)
+                pendingRecognition = null
                 pendingMetadata = null
                 JSONObject().put("ok", true).put("duplicate", false).toString()
             }.getOrElse { error ->
@@ -409,6 +472,11 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun sendEncodedCallback(functionName: String, payload: JSONObject) {
+        val encoded = Base64.encodeToString(payload.toString().toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        evaluate("window.$functionName && window.$functionName(${JSONObject.quote(encoded)}, null);")
+    }
+
     private fun parseIndices(indicesJson: String): LinkedHashSet<Int> {
         val requested = JSONArray(indicesJson)
         val indices = linkedSetOf<Int>()
@@ -473,6 +541,9 @@ class MainActivity : Activity() {
             if (!book.has(key)) book.put(key, defaults.get(key))
         }
         book.remove("confidence")
+        book.remove("_identity_verified")
+        book.remove("_bibliographic_match")
+        book.remove("_author_candidates")
     }
 
     private fun validateJson(text: String) {
