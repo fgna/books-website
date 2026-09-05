@@ -125,11 +125,12 @@ class MainActivity : Activity() {
                 val recognized = parseRecognition(raw)
                 pendingRecognition = JSONObject(recognized.toString())
                 evaluate("window.__bookScanStatus && window.__bookScanStatus('checking', null);")
-                BookMetadataEnricher.enrich(
+                val enriched = BookMetadataEnricher.enrich(
                     recognized = recognized,
                     catalogJson = activeJsonForExport(),
                     userConfirmedIdentity = false,
                 )
+                ScannedMetadataPostProcessor.apply(recognized, enriched)
             }.onSuccess { result ->
                 if (result.optBoolean("_identity_verified", false)) {
                     pendingMetadata = result
@@ -160,11 +161,12 @@ class MainActivity : Activity() {
 
         ioExecutor.execute {
             runCatching {
-                BookMetadataEnricher.enrich(
+                val enriched = BookMetadataEnricher.enrich(
                     recognized = recognized,
                     catalogJson = activeJsonForExport(),
                     userConfirmedIdentity = true,
                 )
+                ScannedMetadataPostProcessor.apply(recognized, enriched)
             }.onSuccess { result ->
                 pendingRecognition = JSONObject(recognized.toString())
                 pendingMetadata = result
@@ -544,6 +546,8 @@ class MainActivity : Activity() {
         book.remove("_identity_verified")
         book.remove("_bibliographic_match")
         book.remove("_author_candidates")
+        book.remove("_metadata_sources")
+        book.remove("_metadata_diagnostics")
     }
 
     private fun validateJson(text: String) {
