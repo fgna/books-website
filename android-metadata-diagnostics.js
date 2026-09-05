@@ -36,18 +36,10 @@
       retryState = null;
       return null;
     }
-
     const title = String(result.title || '').trim();
     const author = String(result.author || '').trim();
     if (!title || !author) return null;
-
-    if (!retryState) {
-      retryState = {
-        author,
-        variants: titleJoinVariants(title),
-      };
-    }
-
+    if (!retryState) retryState = { author, variants: titleJoinVariants(title) };
     while (retryState.variants.length > 0) {
       const candidate = retryState.variants.shift();
       if (candidate) return { title: candidate, author: retryState.author };
@@ -56,13 +48,24 @@
     return null;
   }
 
+  function diagnosticLines(result) {
+    const d = (result && result._metadata_diagnostics) || {};
+    return [
+      ['Open Library', d.open_library],
+      ['Google Books', d.google_books],
+      ['Wikipedia', d.wikipedia],
+      ['Beschreibung', String(result && result.summary || '').trim() ? 'vorhanden' : 'fehlt'],
+      ['Hauptthese', d.main_idea]
+    ].map(([label, value]) => `${label}: ${String(value || 'unknown')}`);
+  }
+
   function showDiagnostics(result) {
     if (!result || typeof result !== 'object') return;
-    if (metadataSources(result).length > 0) return;
-
-    const diagnostics = result._metadata_diagnostics || {};
-    const openLibrary = String(diagnostics.open_library || 'unknown');
-    const googleBooks = String(diagnostics.google_books || 'unknown');
+    const sources = metadataSources(result);
+    const hasDescription = Boolean(String(result.summary || '').trim());
+    const hasMainIdea = Boolean(String(result.main_idea || '').trim());
+    const completeEnough = sources.length > 0 && hasDescription && hasMainIdea;
+    if (completeEnough) return;
 
     const old = document.getElementById('android-metadata-diagnostics');
     if (old) old.remove();
@@ -70,30 +73,24 @@
     const box = document.createElement('div');
     box.id = 'android-metadata-diagnostics';
     box.style.cssText = [
-      'position:fixed',
-      'left:18px',
-      'right:18px',
-      'bottom:calc(18px + var(--safe-bot))',
-      'z-index:420',
-      'background:var(--paper)',
-      'border:1px solid var(--oxblood)',
-      'box-shadow:0 8px 30px rgba(28,28,30,.18)',
-      'padding:14px 15px',
-      'font-family:var(--serif)',
-      'font-size:14px',
-      'line-height:1.4',
-      'color:var(--ink)'
+      'position:fixed','left:18px','right:18px','bottom:calc(18px + var(--safe-bot))','z-index:420',
+      'background:var(--paper)','border:1px solid var(--oxblood)','box-shadow:0 8px 30px rgba(28,28,30,.18)',
+      'padding:14px 15px','font-family:var(--serif)','font-size:14px','line-height:1.4','color:var(--ink)'
     ].join(';');
 
-    const title = german() ? 'Keine Online-Metadaten gefunden' : 'No online metadata found';
+    const noSources = sources.length === 0;
+    const title = german()
+      ? (noSources ? 'Keine Online-Metadaten gefunden' : 'Metadaten nur teilweise ergänzt')
+      : (noSources ? 'No online metadata found' : 'Metadata only partially enriched');
     const hint = german()
-      ? 'Automatische Titelvarianten wurden ebenfalls geprüft. Diagnose:'
-      : 'Automatic title variants were also checked. Diagnostic:';
+      ? 'Diagnose des aktuellen Metadatenpfads:'
+      : 'Diagnostic for the current metadata path:';
+    const lines = diagnosticLines(result).map(escapeText).join('<br>');
 
     box.innerHTML = `
       <div style="font-family:var(--sans);font-weight:600;margin-bottom:5px;color:var(--oxblood)">${title}</div>
       <div style="margin-bottom:8px">${hint}</div>
-      <div style="font-family:var(--mono);font-size:10px;line-height:1.6;word-break:break-word">Open Library: ${escapeText(openLibrary)}<br>Google Books: ${escapeText(googleBooks)}</div>
+      <div style="font-family:var(--mono);font-size:10px;line-height:1.6;word-break:break-word">${lines}</div>
       <button type="button" style="margin-top:10px;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--oxblood)">${german() ? 'Schließen' : 'Close'}</button>
     `;
     box.querySelector('button').onclick = () => box.remove();
@@ -102,11 +99,8 @@
 
   function escapeText(value) {
     return String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\"/g, '&quot;').replace(/'/g, '&#039;');
   }
 
   function wrap(name, allowRetry) {
