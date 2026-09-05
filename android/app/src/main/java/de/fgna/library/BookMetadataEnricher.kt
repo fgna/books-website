@@ -21,9 +21,7 @@ internal object BookMetadataEnricher {
         val genres = collectExistingGenres(catalogJson)
 
         val prompt = buildPrompt(title, author, bibliographic, genres)
-        val semantic = runCatching {
-            parseJsonObject(LocalBookInference.enrich(prompt))
-        }.getOrElse { JSONObject() }
+        val semantic = parseJsonObject(LocalBookInference.enrich(prompt))
 
         return normalizeResult(recognized, bibliographic, semantic, genres)
     }
@@ -235,7 +233,7 @@ internal object BookMetadataEnricher {
         val cleaned = raw.replace("```json", "", ignoreCase = true).replace("```", "").trim()
         val start = cleaned.indexOf('{')
         val end = cleaned.lastIndexOf('}')
-        require(start >= 0 && end > start) { "Gemma metadata response contained no JSON object" }
+        require(start >= 0 && end > start) { "Metadata response contained no JSON object" }
         return JSONObject(cleaned.substring(start, end + 1))
     }
 
