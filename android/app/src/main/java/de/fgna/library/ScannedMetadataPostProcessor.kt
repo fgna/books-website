@@ -1,0 +1,84 @@
+package de.fgna.library
+
+import org.json.JSONObject
+import java.util.Locale
+
+internal object ScannedMetadataPostProcessor {
+    fun apply(recognized: JSONObject, enriched: JSONObject): JSONObject {
+        val result = JSONObject(enriched.toString())
+
+        val visibleLanguage = normalizeLanguage(recognized.optString("language", "").trim())
+        if (visibleLanguage.isNotBlank()) {
+            result.put("language", visibleLanguage)
+        }
+
+        val sourcedSummary = result.optString("summary", "").trim()
+        if (sourcedSummary.isBlank()) return result
+
+        val localized = localizeGroundedText(
+            title = result.optString("title"),
+            author = result.optString("author"),
+            sourceText = sourcedSummary,
+        ) ?: return result
+
+        val germanSummary = localized.optString("summary", "").trim()
+        val mainIdea = localized.optString("main_idea", "").trim()
+        if (germanSummary.isNotBlank()) {
+            if (!sameText(germanSummary, sourcedSummary)) result.put("summary_en", sourcedSummary)
+            result.put("summary", germanSummary)
+        }
+        if (mainIdea.isNotBlank()) result.put("main_idea", mainIdea)
+        return result
+    }
+
+    private fun localizeGroundedText(title: String, author: String, sourceText: String): JSONObject? {
+        val prompt = """
+            Arbeite ausschließlich mit der folgenden verifizierten Quellenbeschreibung eines Buches.
+            Erfinde keine Fakten und ergänze kein Weltwissen.
+
+            Antworte ausschließlich mit genau einem JSON-Objekt ohne Markdown:
+            {
+              "summary": "eine knappe, gut lesbare deutsche Kurzbeschreibung in 2-4 Sätzen",
+              "main_idea": "die zentrale Hauptthese/Kernidee auf Deutsch in genau einem kurzen Satz"
+            }
+
+            Regeln:
+            - Übersetze bzw. verdichte den Quelltext ins Deutsche.
+            - Alle Aussagen müssen durch den Quelltext gestützt sein.
+            - Keine Formulierungen wie wahrscheinlich, vermutlich oder könnte.
+            - Falls keine belastbare Kernidee ableitbar ist, setze main_idea auf einen leeren String.
+            - summary darf keine zusätzlichen Fakten enthalten.
+
+            Titel: $title
+            Autor: $author
+            Quellenbeschreibung:
+            ${sourceText.take(3500)}
+        """.trimIndent()
+
+        return runCatching {
+            val raw = LocalBookInference.enrich(prompt)
+                .replace("```json", "", ignoreCase = true)
+                .replace("```", "")
+                .trim()
+            val start = raw.indexOf('{')
+            val end = raw.lastIndexOf('}')
+            if (start < 0 || end <= start) return@runCatching null
+            JSONObject(raw.substring(start, end + 1))
+        }.getOrNull()
+    }
+
+    private fun normalizeLanguage(value: String): String = when (value.trim().lowercase(Locale.ROOT)) {
+        "de", "deu", "ger", "deutsch", "german" -> "Deutsch"
+        "en", "eng", "english", "englisch" -> "English"
+        "fr", "fra", "fre", "français", "französisch", "french" -> "Französisch"
+        "es", "spa", "español", "spanisch", "spanish" -> "Spanisch"
+        "it", "ita", "italiano", "italienisch", "italian" -> "Italienisch"
+        else -> value.trim()
+    }
+
+    private fun sameText(a: String, b: String): Boolean =
+        a.trim().replace(Regex("\\s+"), " ").equals(
+            b.trim().replace(Regex("\\s+"), " "),
+            ignoreCase = true,
+        )
+}
