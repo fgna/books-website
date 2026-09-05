@@ -99,7 +99,7 @@ internal object LocalBookInference {
           "title": "sichtbarer Buchtitel in normaler Schreibweise",
           "author": "plausibelster sichtbarer Autor oder leerer String",
           "author_candidates": ["alle auf dem Buch lesbaren Personennamen"],
-          "language": "Sprache des sichtbaren Buchtitels oder leerer String",
+          "language": "Sprache der fotografierten konkreten Ausgabe oder leerer String",
           "confidence": 0.0
         }
 
@@ -112,7 +112,8 @@ internal object LocalBookInference {
         - Bevorzuge für author einen Namen, der typografisch als Autorenzeile direkt oberhalb oder nahe beim Titel steht.
         - Namen aus Rezensionen, Zitaten, Presseangaben oder Empfehlungen dürfen in author_candidates stehen, aber NICHT als author gewählt werden. Warnsignale sind Anführungszeichen sowie Zusätze wie Zeitung, Magazin, Daily Mail, Sunday Times, New York Times o. Ä.
         - Wenn mehrere Namen sichtbar sind und ihre Rolle unklar ist, setze author auf den plausibelsten sichtbaren Kandidaten oder leer; erfinde niemals eine weitere Alternative.
-        - language bezeichnet nur die Sprache des sichtbaren Titels/Textes auf dem fotografierten Buch, nicht die vermutete Originalsprache des Werks.
+        - language bezeichnet die Sprache dieser fotografierten Ausgabe. Nutze dafür ALLE sichtbaren sprachlichen Hinweise auf dem Cover oder Buchrücken, insbesondere Untertitel, Klappentext-Fragmente, Reihen-/Verlagszusätze und sonstige lesbare Wörter; ein Eigenname oder sprachneutraler Titel allein reicht nicht.
+        - Wenn die Sprache der konkreten Ausgabe anhand des sichtbaren Texts nicht belastbar bestimmbar ist, setze language auf einen leeren String. Rate nicht anhand von Autor, Originalwerk oder Weltwissen.
         - confidence liegt zwischen 0 und 1 und bewertet gemeinsam die Sicherheit von Titel und author. Bei unklarem Autor muss confidence deutlich sinken.
         - Wenn kein Titel sicher lesbar ist, setze title auf einen leeren String.
     """.trimIndent()
