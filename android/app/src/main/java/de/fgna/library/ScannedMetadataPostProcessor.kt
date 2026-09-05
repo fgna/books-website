@@ -21,10 +21,8 @@ internal object ScannedMetadataPostProcessor {
 
         val germanSummary = localized.optString("summary", "").trim()
         val mainIdea = localized.optString("main_idea", "").trim()
-        if (germanSummary.isNotBlank()) {
-            if (!sameText(germanSummary, sourcedSummary)) result.put("summary_en", sourcedSummary)
-            result.put("summary", germanSummary)
-        }
+        if (germanSummary.isNotBlank()) result.put("summary", germanSummary)
+        result.put("summary_en", JSONObject.NULL)
         if (mainIdea.isNotBlank()) result.put("main_idea", mainIdea)
         return result
     }
@@ -73,10 +71,4 @@ internal object ScannedMetadataPostProcessor {
         "it", "ita", "italiano", "italienisch", "italian" -> "Italienisch"
         else -> ""
     }
-
-    private fun sameText(a: String, b: String): Boolean =
-        a.trim().replace(Regex("\\s+"), " ").equals(
-            b.trim().replace(Regex("\\s+"), " "),
-            ignoreCase = true,
-        )
 }
