@@ -28,15 +28,26 @@ internal object BookMetadataEnricher {
             JSONObject().put("source_error", error.message ?: "Open Library lookup failed")
         }
 
-        val googleBooks = if (preferredAuthor.isNotBlank()) {
+        val openLibraryMatch = openLibrary.optBoolean("trusted_match", false)
+        val canonicalAfterOpenLibrary = openLibrary.optString("canonical_title").trim()
+            .ifBlank { standardizeTitle(scannedTitle) }
+        val authorAfterOpenLibrary = openLibrary.optString("selected_visible_author").trim()
+            .ifBlank { preferredAuthor }
+
+        val googleBooks = if (authorAfterOpenLibrary.isNotBlank() && (
+                !openLibraryMatch || openLibrary.optString("description").isBlank()
+            )) {
             runCatching {
-                lookupGoogleBooks(scannedTitle, preferredAuthor)
+                lookupGoogleBooks(
+                    title = canonicalAfterOpenLibrary,
+                    author = authorAfterOpenLibrary,
+                    isbn = openLibrary.optString("isbn").trim(),
+                )
             }.getOrElse { error ->
                 JSONObject().put("source_error", error.message ?: "Google Books lookup failed")
             }
         } else JSONObject()
 
-        val openLibraryMatch = openLibrary.optBoolean("trusted_match", false)
         val googleMatch = googleBooks.optBoolean("trusted_match", false)
         val sourceMatch = openLibraryMatch || googleMatch
         val identityVerified = sourceMatch || userConfirmedIdentity
@@ -51,6 +62,15 @@ internal object BookMetadataEnricher {
         val facts = JSONObject()
         mergeFacts(facts, openLibrary)
         mergeFacts(facts, googleBooks)
+
+        val wikipedia = if (sourceMatch && facts.optString("description").isBlank()) {
+            runCatching { lookupWikipediaBook(canonicalTitle, selectedAuthor) }
+                .getOrElse { error ->
+                    JSONObject().put("source_error", error.message ?: "Wikipedia lookup failed")
+                }
+        } else JSONObject()
+        val wikipediaMatch = wikipedia.optBoolean("trusted_match", false)
+        mergeFacts(facts, wikipedia)
 
         val genres = collectExistingGenres(catalogJson)
         val metadata = if (identityVerified) metadataFromInternetFacts(facts, genres) else JSONObject()
@@ -78,6 +98,7 @@ internal object BookMetadataEnricher {
             put("_metadata_sources", JSONArray().apply {
                 if (openLibraryMatch) put("Open Library")
                 if (googleMatch) put("Google Books")
+                if (wikipediaMatch) put("Wikipedia")
             })
             put("_metadata_diagnostics", JSONObject().apply {
                 put("open_library", when {
@@ -88,7 +109,14 @@ internal object BookMetadataEnricher {
                 put("google_books", when {
                     googleMatch -> "match"
                     googleBooks.has("source_error") -> googleBooks.optString("source_error")
+                    openLibraryMatch && openLibrary.optString("description").isNotBlank() -> "skipped: Open Library description available"
                     else -> "no match"
+                })
+                put("wikipedia", when {
+                    wikipediaMatch -> "match"
+                    wikipedia.has("source_error") -> wikipedia.optString("source_error")
+                    facts.optString("description").isNotBlank() -> "not needed"
+                    else -> "no matching book article"
                 })
                 put("main_idea", when {
                     metadata.optString("summary", "").isBlank() -> "skipped: no sourced description"
@@ -272,12 +300,19 @@ internal object BookMetadataEnricher {
         else -> ""
     }.trim()
 
-    private fun lookupGoogleBooks(title: String, author: String): JSONObject {
-        val q = "intitle:${baseTitle(title)} inauthor:$author"
-        val url = "https://www.googleapis.com/books/v1/volumes?q=${enc(q)}&maxResults=10&printType=books"
-        val items = getJson(url).optJSONArray("items") ?: JSONArray()
-        val match = selectGoogleBooksMatch(items, title, author)
-        return if (match != null) factsForGoogleBooksMatch(match, author) else JSONObject()
+    private fun lookupGoogleBooks(title: String, author: String, isbn: String): JSONObject {
+        val queries = buildList {
+            if (isbn.isNotBlank()) add("isbn:$isbn")
+            add("intitle:${baseTitle(title)} inauthor:$author")
+        }
+        for (q in queries.distinct()) {
+            val url = "https://www.googleapis.com/books/v1/volumes?q=${enc(q)}&maxResults=10&printType=books"
+            val items = getJson(url).optJSONArray("items") ?: JSONArray()
+            val match = selectGoogleBooksMatch(items, title, author)
+            if (match != null) return factsForGoogleBooksMatch(match, author)
+            if (isbn.isNotBlank()) break
+        }
+        return JSONObject()
     }
 
     private fun selectGoogleBooksMatch(items: JSONArray, title: String, author: String): JSONObject? {
@@ -318,6 +353,38 @@ internal object BookMetadataEnricher {
         if (link.isNotBlank()) put("google_books_url", link)
     }
 
+    private fun lookupWikipediaBook(title: String, author: String): JSONObject {
+        if (title.isBlank()) return JSONObject()
+        val searchQuery = listOf(title, author).filter { it.isNotBlank() }.joinToString(" ")
+        val searchUrl = "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${enc(searchQuery)}&srlimit=5&format=json&origin=*"
+        val results = getJson(searchUrl)
+            .optJSONObject("query")
+            ?.optJSONArray("search")
+            ?: JSONArray()
+
+        val authorSurname = normalize(author).substringAfterLast(' ', "")
+        for (i in 0 until results.length()) {
+            val item = results.optJSONObject(i) ?: continue
+            val pageTitle = item.optString("title").trim()
+            val snippet = item.optString("snippet").replace(Regex("<[^>]+>"), " ")
+            val titlePlausible = titleMatchScore(title, pageTitle) >= 0 ||
+                compact(normalize(pageTitle)).contains(compact(normalize(baseTitle(title))))
+            val authorPlausible = authorSurname.isBlank() || normalize(snippet).contains(authorSurname)
+            if (!titlePlausible || !authorPlausible) continue
+
+            val summaryUrl = "https://en.wikipedia.org/api/rest_v1/page/summary/${encPath(pageTitle)}"
+            val summary = getJson(summaryUrl)
+            val extract = summary.optString("extract").trim()
+            if (extract.isBlank()) continue
+            return JSONObject()
+                .put("trusted_match", true)
+                .put("source", "wikipedia")
+                .put("description", extract.take(4000))
+                .put("wikipedia_url", summary.optJSONObject("content_urls")?.optJSONObject("desktop")?.optString("page").orEmpty())
+        }
+        return JSONObject()
+    }
+
     private fun mergeFacts(target: JSONObject, source: JSONObject) {
         if (!source.optBoolean("trusted_match", false)) return
         val keys = source.keys()
@@ -329,6 +396,7 @@ internal object BookMetadataEnricher {
                 !target.has(key) -> target.put(key, value)
                 key == "description" && target.optString(key).isBlank() -> target.put(key, value)
                 key == "year_published" && target.optInt(key, 0) <= 0 -> target.put(key, value)
+                key == "wikipedia_url" && target.optString(key).isBlank() -> target.put(key, value)
             }
         }
     }
@@ -613,6 +681,10 @@ internal object BookMetadataEnricher {
     }
 
     private fun enc(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())
+
+    private fun encPath(value: String): String = value
+        .split('/')
+        .joinToString("/") { URLEncoder.encode(it, Charsets.UTF_8.name()).replace("+", "%20") }
 
     private fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFD)
         .replace("\\p{M}+".toRegex(), "")
