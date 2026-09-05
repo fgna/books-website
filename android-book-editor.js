@@ -8,12 +8,12 @@
     edit: 'Bearbeiten', heading: 'Buch bearbeiten', save: 'Änderungen speichern', remove: 'Buch löschen', cancel: 'Abbrechen',
     title: 'Titel', originalTitle: 'Originaltitel', author: 'Autor', genres: 'Genres', language: 'Sprache', originalLanguage: 'Originalsprache',
     year: 'Erstveröffentlichung', keywords: 'Schlagwörter', summary: 'Kurzbeschreibung', mainIdea: 'Kernidee', period: 'Periode', country: 'Herkunftsland', rating: 'Bewertung', series: 'Reihe', read: 'Gelesen',
-    yes: 'Ja', no: 'Nein', unknown: 'Unbekannt', deleteConfirm: 'Dieses Buch wirklich aus der Bibliothek löschen?', loadError: 'Buch konnte nicht geladen werden.'
+    yes: 'Ja', no: 'Nein', unknown: 'Unbekannt', deleteConfirm: 'Dieses Buch wirklich aus der Bibliothek löschen?', deleting: 'Buch wird gelöscht…', loadError: 'Buch konnte nicht geladen werden.'
   } : {
     edit: 'Edit', heading: 'Edit book', save: 'Save changes', remove: 'Delete book', cancel: 'Cancel',
     title: 'Title', originalTitle: 'Original title', author: 'Author', genres: 'Genres', language: 'Language', originalLanguage: 'Original language',
     year: 'First published', keywords: 'Keywords', summary: 'Summary', mainIdea: 'Main idea', period: 'Period', country: 'Country of origin', rating: 'Rating', series: 'Series', read: 'Read',
-    yes: 'Yes', no: 'No', unknown: 'Unknown', deleteConfirm: 'Really delete this book from the library?', loadError: 'Could not load book.'
+    yes: 'Yes', no: 'No', unknown: 'Unknown', deleteConfirm: 'Really delete this book from the library?', deleting: 'Deleting book…', loadError: 'Could not load book.'
   };
 
   function esc(value) {
@@ -89,6 +89,7 @@
         <option value="false" ${readValue === 'false' ? 'selected' : ''}>${esc(L.no)}</option>
       </select>
       <div id="abe-error" style="display:none;margin-top:14px;color:var(--oxblood);font-family:var(--serif);font-size:14px"></div>
+      <div id="abe-status" style="display:none;margin-top:14px;font-family:var(--serif);font-size:15px;color:var(--ink-2)"></div>
       <button id="abe-save" style="width:100%;border-top:1px solid var(--ink);margin-top:22px;padding:15px 2px;text-align:left;font-family:var(--sans);font-size:15px;color:var(--oxblood)">${esc(L.save)}</button>
       <button id="abe-delete" style="width:100%;border-top:1px solid var(--rule);padding:15px 2px;text-align:left;font-family:var(--sans);font-size:15px;color:var(--oxblood)">${esc(L.remove)}</button>
       <button id="abe-cancel" style="width:100%;border-top:1px solid var(--rule);padding:15px 2px;text-align:left;font-family:var(--sans);font-size:15px">${esc(L.cancel)}</button>
@@ -137,16 +138,42 @@
     sheet.querySelector('#abe-delete').onclick = () => {
       if (!window.confirm(L.deleteConfirm)) return;
       const error = sheet.querySelector('#abe-error');
-      try {
-        const result = JSON.parse(native.deleteBookEntries(JSON.stringify([index])));
-        if (!result.ok) throw new Error(result.error || 'Delete failed');
-        close();
-        native.reloadLibrary();
-      } catch (e) {
-        console.error(e);
-        error.style.display = 'block';
-        error.textContent = String(e);
-      }
+      const status = sheet.querySelector('#abe-status');
+      const deleteButton = sheet.querySelector('#abe-delete');
+      const saveButton = sheet.querySelector('#abe-save');
+      const cancelButton = sheet.querySelector('#abe-cancel');
+
+      error.style.display = 'none';
+      status.style.display = 'block';
+      status.textContent = L.deleting;
+      deleteButton.disabled = true;
+      saveButton.disabled = true;
+      cancelButton.disabled = true;
+      deleteButton.style.opacity = '.45';
+      saveButton.style.opacity = '.45';
+      cancelButton.style.opacity = '.45';
+
+      // Yield once so WebView can paint the progress state before the synchronous
+      // native bridge call performs persistence/backup work.
+      window.setTimeout(() => {
+        try {
+          const result = JSON.parse(native.deleteBookEntries(JSON.stringify([index])));
+          if (!result.ok) throw new Error(result.error || 'Delete failed');
+          close();
+          native.reloadLibrary();
+        } catch (e) {
+          console.error(e);
+          status.style.display = 'none';
+          error.style.display = 'block';
+          error.textContent = String(e);
+          deleteButton.disabled = false;
+          saveButton.disabled = false;
+          cancelButton.disabled = false;
+          deleteButton.style.opacity = '1';
+          saveButton.style.opacity = '1';
+          cancelButton.style.opacity = '1';
+        }
+      }, 30);
     };
   }
 
