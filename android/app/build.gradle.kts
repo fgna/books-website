@@ -40,6 +40,7 @@ android {
             include("config.js")
             include("android-books-source.js")
             include("android-settings.js")
+            include("android-metadata-diagnostics.js")
             include("android-book-editor.js")
             include("android-duplicates.js")
             include("android-ui-copy.js")
