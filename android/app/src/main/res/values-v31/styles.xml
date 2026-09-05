@@ -3,6 +3,5 @@
     <style name="Theme.PersonalLibrary.Starting" parent="Theme.PersonalLibrary">
         <item name="android:windowSplashScreenBackground">@color/library_icon_background</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_library_books</item>
-        <item name="android:postSplashScreenTheme">@style/Theme.PersonalLibrary</item>
     </style>
 </resources>
