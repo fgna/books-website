@@ -44,6 +44,39 @@
     }
   }
 
+  function showLlmRequirement() {
+    if (document.getElementById('android-llm-requirement')) return;
+
+    const de = isGerman();
+    const overlay = document.createElement('div');
+    overlay.id = 'android-llm-requirement';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:380;background:rgba(28,28,30,.36);display:flex;align-items:flex-end;';
+
+    const sheet = document.createElement('div');
+    sheet.style.cssText = 'width:100%;background:var(--paper);border-top:1px solid var(--ink);padding:22px 18px calc(22px + var(--safe-bot));box-shadow:0 -18px 50px rgba(28,28,30,.16);';
+    sheet.innerHTML = `
+      <div class="display" style="font-size:24px;margin-bottom:14px">${de ? 'Buch scannen' : 'Scan book'}</div>
+      <div style="font-family:var(--serif);font-size:16px;line-height:1.5;margin-bottom:18px">
+        ${de
+          ? 'Zum Erkennen eines fotografierten Buches wird der Android LLM Service benötigt. Die Bibliothek selbst funktioniert auch ohne diesen Service.'
+          : 'Android LLM Service is required to recognize a photographed book. The library itself works without this service.'}
+      </div>
+      <a id="android-llm-install" href="https://github.com/fgna/android-llm-service/releases" style="display:block;width:100%;box-sizing:border-box;border-top:1px solid var(--ink);padding:15px 2px;font-family:var(--sans);font-size:15px;color:var(--oxblood);text-decoration:none">
+        ${de ? 'Android LLM Service installieren / einrichten' : 'Install / set up Android LLM Service'}
+      </a>
+      <button id="android-llm-close" style="width:100%;text-align:left;border-top:1px solid var(--rule);padding:15px 2px;font-family:var(--sans);font-size:15px">
+        ${de ? 'Schließen' : 'Close'}
+      </button>
+    `;
+
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+    sheet.querySelector('#android-llm-close').onclick = close;
+  }
+
   function showDuplicateSearchProgress() {
     document.getElementById('android-duplicate-search-progress')?.remove();
     const overlay = document.createElement('div');
@@ -63,6 +96,19 @@
   }
 
   document.addEventListener('click', event => {
+    const scan = event.target && event.target.closest ? event.target.closest('#android-scan-book-button') : null;
+    if (scan) {
+      let ready = false;
+      try { ready = !!window.AndroidBookSource.isLlmServiceReady(); }
+      catch (_) { ready = false; }
+      if (!ready) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        showLlmRequirement();
+        return;
+      }
+    }
+
     const target = event.target && event.target.closest ? event.target.closest('#android-find-duplicates') : null;
     if (target) showDuplicateSearchProgress();
   }, true);
