@@ -96,15 +96,21 @@ internal object LocalBookInference {
 
         Antworte ausschließlich mit genau einem JSON-Objekt ohne Markdown:
         {
-          "title": "sichtbarer Buchtitel",
+          "title": "sichtbarer Buchtitel in normaler Schreibweise",
           "author": "sichtbarer Autor oder leerer String",
+          "language": "Sprache des sichtbaren Buchtitels oder leerer String",
           "confidence": 0.0
         }
 
         Regeln:
-        - title muss der Buchtitel sein, nicht Verlag, Zitat oder Reihenlogo.
-        - author darf leer sein, wenn kein Autor sicher lesbar ist.
-        - confidence liegt zwischen 0 und 1.
+        - title muss der eigentliche Buchtitel sein, nicht Verlag, Werbespruch, Zitat, Reihenlogo oder Unterzeile einer Rezension.
+        - Gib title in üblicher Schreibweise zurück. Übernimm reine GROSSSCHREIBUNG des Covers nicht, wenn normale Groß-/Kleinschreibung eindeutig ist.
+        - author muss der Buchautor sein. Namen in Rezensionen, Zitaten, Presseangaben oder Empfehlungen sind ausdrücklich keine Autoren.
+        - Typische Warnsignale für Nicht-Autoren sind Anführungszeichen sowie Zusätze wie Zeitung, Magazin, Presse, Daily Mail, Sunday Times, New York Times o. Ä.
+        - Wenn mehrere Personennamen sichtbar sind, bevorzuge den Namen in unmittelbarer Nähe zum Titel bzw. an der typischen Autorenposition.
+        - author darf leer sein, wenn kein Autor sicher lesbar ist. Lieber leer als einen Rezensenten zu übernehmen.
+        - language bezeichnet nur die Sprache des sichtbaren Titels/Textes auf dem fotografierten Buch, nicht die vermutete Originalsprache des Werks.
+        - confidence liegt zwischen 0 und 1 und bewertet gemeinsam die Sicherheit von Titel und Autor.
         - Wenn kein Titel sicher lesbar ist, setze title auf einen leeren String.
     """.trimIndent()
 }
