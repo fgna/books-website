@@ -72,7 +72,7 @@ internal object BookMetadataEnricher {
             })
             put("_metadata_diagnostics", JSONObject().apply {
                 put("open_library", when {
-                    openLibraryMatch -> "match"
+                    openLibraryMatch -> "match ${openLibrary.optString("openlibrary_work_id")}".trim()
                     openLibrary.has("source_error") -> openLibrary.optString("source_error")
                     else -> "no match"
                 })
@@ -87,23 +87,30 @@ internal object BookMetadataEnricher {
 
     private fun lookupOpenLibrary(title: String, visibleCandidates: List<String>): JSONObject {
         for (candidate in visibleCandidates) {
-            for (docs in listOf(
+            val docs = combineArrays(
                 searchOpenLibraryByFields(title, candidate),
                 searchOpenLibraryGeneral(title, candidate),
-            )) {
-                val match = selectOpenLibraryMatch(docs, title, candidate)
-                if (match != null) return factsForOpenLibraryMatch(match, title, candidate)
-            }
-        }
-
-        // Last fallback: search by title only, but still accept only an author that was
-        // actually visible / manually confirmed by the user.
-        val titleOnly = searchOpenLibraryByFields(title, "")
-        for (candidate in visibleCandidates) {
-            val match = selectOpenLibraryMatch(titleOnly, title, candidate)
+                searchOpenLibraryByFields(title, ""),
+            )
+            val match = selectOpenLibraryMatch(docs, title, candidate)
             if (match != null) return factsForOpenLibraryMatch(match, title, candidate)
         }
         return JSONObject()
+    }
+
+    private fun combineArrays(vararg arrays: JSONArray): JSONArray {
+        val result = JSONArray()
+        val seen = linkedSetOf<String>()
+        for (array in arrays) {
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val key = item.optString("key").ifBlank {
+                    "${item.optString("title")}|${item.optJSONArray("author_name")?.toString().orEmpty()}"
+                }
+                if (seen.add(key)) result.put(item)
+            }
+        }
+        return result
     }
 
     private fun searchOpenLibraryByFields(title: String, author: String): JSONArray {
@@ -114,14 +121,14 @@ internal object BookMetadataEnricher {
                 append("&author=")
                 append(enc(author))
             }
-            append("&limit=20&fields=key,title,author_name,first_publish_year,language,subject")
+            append("&limit=30&fields=key,title,author_name,first_publish_year,language,subject,edition_count,isbn")
         }
         return getJson(query).optJSONArray("docs") ?: JSONArray()
     }
 
     private fun searchOpenLibraryGeneral(title: String, author: String): JSONArray {
         val q = listOf(title, author).filter { it.isNotBlank() }.joinToString(" ")
-        val query = "https://openlibrary.org/search.json?q=${enc(q)}&limit=20&fields=key,title,author_name,first_publish_year,language,subject"
+        val query = "https://openlibrary.org/search.json?q=${enc(q)}&limit=30&fields=key,title,author_name,first_publish_year,language,subject,edition_count,isbn"
         return getJson(query).optJSONArray("docs") ?: JSONArray()
     }
 
@@ -133,7 +140,17 @@ internal object BookMetadataEnricher {
             val titleScore = titleMatchScore(title, doc.optString("title"))
             if (titleScore < 0) continue
             if (!authorsMatch(author, doc.optJSONArray("author_name"))) continue
-            val score = titleScore + 10
+
+            val subjectCount = doc.optJSONArray("subject")?.length() ?: 0
+            val languageCount = doc.optJSONArray("language")?.length() ?: 0
+            val editionCount = doc.optInt("edition_count", 0).coerceAtMost(20)
+            val isbnCount = doc.optJSONArray("isbn")?.length() ?: 0
+            val completeness =
+                subjectCount.coerceAtMost(10) * 5 +
+                languageCount.coerceAtMost(3) * 2 +
+                editionCount * 2 +
+                if (isbnCount > 0) 3 else 0
+            val score = titleScore * 100 + completeness
             if (score > bestScore) {
                 best = doc
                 bestScore = score
@@ -160,6 +177,9 @@ internal object BookMetadataEnricher {
         }
         facts.put("openlibrary_languages", match.optJSONArray("language") ?: JSONArray())
         facts.put("openlibrary_subjects", match.optJSONArray("subject") ?: JSONArray())
+        match.optJSONArray("isbn")?.optString(0)?.trim()?.takeIf { it.isNotBlank() }?.let {
+            facts.put("isbn", it)
+        }
 
         if (workId.isNotBlank()) {
             val work = runCatching { getJson("https://openlibrary.org/works/$workId.json") }.getOrNull()
@@ -168,11 +188,7 @@ internal object BookMetadataEnricher {
                 if (originalTitle.isNotBlank() && !strongTitleMatch(canonicalTitle.ifBlank { scannedTitle }, originalTitle)) {
                     facts.put("original_title", originalTitle)
                 }
-                val description = when (val raw = work.opt("description")) {
-                    is String -> raw
-                    is JSONObject -> raw.optString("value")
-                    else -> ""
-                }.trim()
+                val description = descriptionText(work.opt("description"))
                 if (description.isNotBlank()) facts.put("description", description.take(4000))
                 val subjects = work.optJSONArray("subjects")
                 if (subjects != null && subjects.length() > 0) facts.put("work_subjects", subjects)
@@ -185,22 +201,71 @@ internal object BookMetadataEnricher {
                     }
                 }
             }
+
+            enrichFromOpenLibraryEditions(facts, workId)
         }
         return facts
     }
 
-    private fun lookupGoogleBooks(title: String, author: String): JSONObject {
-        val queries = listOf(
-            listOf(title, author).joinToString(" "),
-            title,
-        )
-        for (q in queries) {
-            val url = "https://www.googleapis.com/books/v1/volumes?q=${enc(q)}&maxResults=40&printType=books"
-            val items = getJson(url).optJSONArray("items") ?: JSONArray()
-            val match = selectGoogleBooksMatch(items, title, author)
-            if (match != null) return factsForGoogleBooksMatch(match, author)
+    private fun enrichFromOpenLibraryEditions(facts: JSONObject, workId: String) {
+        val payload = runCatching {
+            getJson("https://openlibrary.org/works/$workId/editions.json?limit=50")
+        }.getOrNull() ?: return
+        val entries = payload.optJSONArray("entries") ?: return
+        val subjects = linkedSetOf<String>()
+        val languages = linkedSetOf<String>()
+        var description = ""
+        var earliestYear = facts.optInt("year_published", 0).takeIf { it > 0 }
+
+        for (i in 0 until entries.length()) {
+            val edition = entries.optJSONObject(i) ?: continue
+            val editionSubjects = edition.optJSONArray("subjects")
+            if (editionSubjects != null) {
+                for (j in 0 until editionSubjects.length()) {
+                    editionSubjects.optString(j).trim().takeIf { it.isNotBlank() }?.let(subjects::add)
+                }
+            }
+            val editionLanguages = edition.optJSONArray("languages")
+            if (editionLanguages != null) {
+                for (j in 0 until editionLanguages.length()) {
+                    val languageKey = editionLanguages.optJSONObject(j)?.optString("key").orEmpty()
+                    languageKey.substringAfterLast('/').trim().takeIf { it.isNotBlank() }?.let(languages::add)
+                }
+            }
+            if (description.isBlank()) description = descriptionText(edition.opt("description"))
+            val year = Regex("(?:18|19|20)\\d{2}")
+                .find(edition.optString("publish_date"))
+                ?.value
+                ?.toIntOrNull()
+            if (year != null && (earliestYear == null || year < earliestYear)) earliestYear = year
         }
-        return JSONObject()
+
+        if (facts.optJSONArray("work_subjects")?.length() ?: 0 == 0 && subjects.isNotEmpty()) {
+            facts.put("edition_subjects", JSONArray(subjects.toList()))
+        }
+        if (facts.optJSONArray("openlibrary_languages")?.length() ?: 0 == 0 && languages.isNotEmpty()) {
+            facts.put("openlibrary_languages", JSONArray(languages.toList()))
+        }
+        if (facts.optString("description").isBlank() && description.isNotBlank()) {
+            facts.put("description", description.take(4000))
+        }
+        if (earliestYear != null && earliestYear > 0) facts.put("year_published", earliestYear)
+    }
+
+    private fun descriptionText(raw: Any?): String = when (raw) {
+        is String -> raw
+        is JSONObject -> raw.optString("value")
+        else -> ""
+    }.trim()
+
+    private fun lookupGoogleBooks(title: String, author: String): JSONObject {
+        // One targeted request only. Google Books returns HTTP 429 on some devices/IPs;
+        // repeated broad retries make that worse and Open Library is the primary source.
+        val q = "intitle:${baseTitle(title)} inauthor:$author"
+        val url = "https://www.googleapis.com/books/v1/volumes?q=${enc(q)}&maxResults=10&printType=books"
+        val items = getJson(url).optJSONArray("items") ?: JSONArray()
+        val match = selectGoogleBooksMatch(items, title, author)
+        return if (match != null) factsForGoogleBooksMatch(match, author) else JSONObject()
     }
 
     private fun selectGoogleBooksMatch(items: JSONArray, title: String, author: String): JSONObject? {
@@ -259,7 +324,7 @@ internal object BookMetadataEnricher {
     private fun metadataFromInternetFacts(facts: JSONObject, allowedGenres: List<String>): JSONObject {
         val result = JSONObject()
         val sourceTerms = linkedSetOf<String>()
-        for (key in listOf("work_subjects", "openlibrary_subjects", "google_categories")) {
+        for (key in listOf("work_subjects", "edition_subjects", "openlibrary_subjects", "google_categories")) {
             val values = facts.optJSONArray(key) ?: continue
             for (i in 0 until values.length()) {
                 values.optString(i).trim().takeIf { it.isNotBlank() }?.let(sourceTerms::add)
@@ -350,7 +415,6 @@ internal object BookMetadataEnricher {
         if (leftBase.isNotBlank() && leftBase == rightBase) return 3
         if (leftBase.isNotBlank() && compact(leftBase) == compact(rightBase)) return 2
 
-        // Accept a source title with a subtitle when the scanned main title matches it.
         if (leftBase.isNotBlank() && right.startsWith("$leftBase ")) return 1
         if (leftBase.isNotBlank() && compact(right).startsWith(compact(leftBase))) return 1
         return -1
@@ -395,8 +459,9 @@ internal object BookMetadataEnricher {
         putNullable(result, "original_title", facts.opt("original_title"))
         putStringArray(result, "genre", filterGenres(metadata.optJSONArray("genre"), allowedGenres))
 
+        val sourceLanguage = metadata.optString("language", "").trim()
         val visibleLanguage = recognized.optString("language", "").trim()
-        result.put("language", visibleLanguage.ifBlank { metadata.optString("language", "").trim() })
+        result.put("language", sourceLanguage.ifBlank { visibleLanguage })
         putStringArray(result, "keywords", metadata.optJSONArray("keywords"))
         result.put("summary", metadata.optString("summary", "").trim())
         result.put("summary_en", JSONObject.NULL)
