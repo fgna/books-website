@@ -54,6 +54,14 @@ internal object BookMetadataEnricher {
 
         val genres = collectExistingGenres(catalogJson)
         val metadata = if (identityVerified) metadataFromInternetFacts(facts, genres) else JSONObject()
+        val mainIdea = if (sourceMatch) {
+            synthesizeMainIdea(
+                title = canonicalTitle,
+                author = selectedAuthor,
+                description = metadata.optString("summary", "").trim(),
+                keywords = metadata.optJSONArray("keywords"),
+            )
+        } else ""
 
         return normalizeResult(
             recognized = recognized,
@@ -61,6 +69,7 @@ internal object BookMetadataEnricher {
             selectedAuthor = selectedAuthor,
             facts = facts,
             metadata = metadata,
+            mainIdea = mainIdea,
             allowedGenres = genres,
         ).apply {
             put("_identity_verified", identityVerified)
@@ -80,6 +89,11 @@ internal object BookMetadataEnricher {
                     googleMatch -> "match"
                     googleBooks.has("source_error") -> googleBooks.optString("source_error")
                     else -> "no match"
+                })
+                put("main_idea", when {
+                    metadata.optString("summary", "").isBlank() -> "skipped: no sourced description"
+                    mainIdea.isNotBlank() -> "generated from sourced description"
+                    else -> "not generated"
                 })
             })
         }
@@ -259,8 +273,6 @@ internal object BookMetadataEnricher {
     }.trim()
 
     private fun lookupGoogleBooks(title: String, author: String): JSONObject {
-        // One targeted request only. Google Books returns HTTP 429 on some devices/IPs;
-        // repeated broad retries make that worse and Open Library is the primary source.
         val q = "intitle:${baseTitle(title)} inauthor:$author"
         val url = "https://www.googleapis.com/books/v1/volumes?q=${enc(q)}&maxResults=10&printType=books"
         val items = getJson(url).optJSONArray("items") ?: JSONArray()
@@ -344,6 +356,44 @@ internal object BookMetadataEnricher {
             googleLanguage.ifBlank { languageFromOpenLibrary(facts.optJSONArray("openlibrary_languages")) },
         )
         return result
+    }
+
+    private fun synthesizeMainIdea(
+        title: String,
+        author: String,
+        description: String,
+        keywords: JSONArray?,
+    ): String {
+        if (description.isBlank()) return ""
+        val keywordText = buildList {
+            if (keywords != null) {
+                for (i in 0 until keywords.length()) {
+                    keywords.optString(i).trim().takeIf { it.isNotBlank() }?.let(::add)
+                }
+            }
+        }.joinToString(", ")
+        val prompt = """
+            Formuliere die zentrale Hauptthese des folgenden Buches auf Deutsch in genau einem kurzen Satz.
+            Verwende ausschließlich Informationen aus der bereitgestellten, bereits verifizierten Quellenbeschreibung.
+            Erfinde keine Fakten, Ereignisse, Personen, Motive oder Schlussfolgerungen, die nicht durch diese Beschreibung gestützt werden.
+            Wenn aus der Beschreibung keine belastbare Hauptthese ableitbar ist, antworte exakt mit: LEER
+            Keine Einleitung, kein Markdown, keine Anführungszeichen.
+
+            Titel: $title
+            Autor: $author
+            Quellen-Schlagwörter: $keywordText
+            Quellenbeschreibung:
+            ${description.take(3500)}
+        """.trimIndent()
+
+        return runCatching { LocalBookInference.enrich(prompt) }
+            .getOrDefault("")
+            .replace("```", "")
+            .trim()
+            .trim('"', '\'', '“', '”')
+            .takeIf { it.isNotBlank() && !it.equals("LEER", ignoreCase = true) }
+            ?.take(600)
+            .orEmpty()
     }
 
     private fun mapSourceTermsToGenres(terms: Set<String>, allowedGenres: List<String>): List<String> {
@@ -450,6 +500,7 @@ internal object BookMetadataEnricher {
         selectedAuthor: String,
         facts: JSONObject,
         metadata: JSONObject,
+        mainIdea: String,
         allowedGenres: List<String>,
     ): JSONObject {
         val result = JSONObject()
@@ -470,7 +521,7 @@ internal object BookMetadataEnricher {
         val year = facts.optInt("year_published", 0)
         if (year > 0) result.put("year_published", year) else result.put("year_published", JSONObject.NULL)
 
-        result.put("main_idea", JSONObject.NULL)
+        putNullable(result, "main_idea", mainIdea)
         result.put("main_idea_en", JSONObject.NULL)
         putNullable(result, "openlibrary_work_id", facts.opt("openlibrary_work_id"))
         putNullable(result, "wikipedia_url", facts.opt("wikipedia_url"))
