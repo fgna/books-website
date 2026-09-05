@@ -8,9 +8,7 @@ internal object ScannedMetadataPostProcessor {
         val result = JSONObject(enriched.toString())
 
         val visibleLanguage = normalizeLanguage(recognized.optString("language", "").trim())
-        if (visibleLanguage.isNotBlank()) {
-            result.put("language", visibleLanguage)
-        }
+        result.put("language", visibleLanguage)
 
         val sourcedSummary = result.optString("summary", "").trim()
         if (sourcedSummary.isBlank()) return result
@@ -73,7 +71,7 @@ internal object ScannedMetadataPostProcessor {
         "fr", "fra", "fre", "français", "französisch", "french" -> "Französisch"
         "es", "spa", "español", "spanisch", "spanish" -> "Spanisch"
         "it", "ita", "italiano", "italienisch", "italian" -> "Italienisch"
-        else -> value.trim()
+        else -> ""
     }
 
     private fun sameText(a: String, b: String): Boolean =
