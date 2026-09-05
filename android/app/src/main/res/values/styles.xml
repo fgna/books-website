@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.PersonalLibrary" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">@color/library_icon_background</item>
+        <item name="android:statusBarColor">@color/library_icon_background</item>
+    </style>
+
+    <style name="Theme.PersonalLibrary.Starting" parent="Theme.PersonalLibrary">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+</resources>
