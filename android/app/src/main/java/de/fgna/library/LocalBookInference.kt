@@ -91,27 +91,29 @@ internal object LocalBookInference {
 
     private fun identifyPrompt(): String = """
         Du liest ein Foto eines einzelnen physischen Buches oder Buchrückens.
-        Extrahiere ausschließlich Informationen, die auf dem Foto sichtbar sind.
-        Erfinde keine Namen oder Metadaten und ergänze nichts aus deinem Weltwissen.
+        Arbeite wie OCR: Extrahiere ausschließlich Text und Personennamen, die auf dem Foto wirklich sichtbar sind.
+        Erfinde keine Namen oder Metadaten und ergänze insbesondere keinen Autor aus deinem Weltwissen.
 
         Antworte ausschließlich mit genau einem JSON-Objekt ohne Markdown:
         {
           "title": "sichtbarer Buchtitel in normaler Schreibweise",
           "author": "plausibelster sichtbarer Autor oder leerer String",
-          "author_candidates": ["alle sichtbaren Personennamen, die als Autor infrage kommen könnten"],
+          "author_candidates": ["alle auf dem Buch lesbaren Personennamen"],
           "language": "Sprache des sichtbaren Buchtitels oder leerer String",
           "confidence": 0.0
         }
 
         Regeln:
+        - Lies zuerst systematisch alle Textbereiche des Buches: oberen Rand, Autorenzeile über dem Titel, Titel, Untertitel sowie Zitat-/Rezensionszeilen unten.
         - title muss der eigentliche Buchtitel sein, nicht Verlag, Werbespruch, Zitat, Reihenlogo oder Unterzeile einer Rezension.
         - Gib title in üblicher Schreibweise zurück. Übernimm reine GROSSSCHREIBUNG des Covers nicht, wenn normale Groß-/Kleinschreibung eindeutig ist.
-        - author_candidates darf ausschließlich Personennamen enthalten, die tatsächlich auf dem Foto lesbar sind. Erfinde niemals einen nicht sichtbaren Namen.
-        - Wenn mehrere Personennamen sichtbar sind, nimm alle plausiblen Kandidaten in author_candidates auf, auch wenn einzelne aus Rezensionen oder Empfehlungen stammen könnten.
-        - author ist nur dein derzeit plausibelster Kandidat aus author_candidates. Wenn keiner ausreichend plausibel ist, verwende einen leeren String.
-        - Namen in Rezensionen, Zitaten, Presseangaben oder Empfehlungen sind keine Autoren; typische Warnsignale sind Anführungszeichen sowie Zusätze wie Zeitung, Magazin, Daily Mail, Sunday Times, New York Times o. Ä.
+        - author_candidates enthält ALLE tatsächlich lesbaren Personennamen auf dem Buch, unabhängig davon, ob sie Autor, Rezensent oder zitierte Person sind. Die Liste ist eine reine Sichtbarkeitsliste.
+        - Kopiere Namen buchstabengetreu vom Foto. Erfinde oder vervollständige keine Namen. Ein Name, der nicht sichtbar ist, darf niemals in author_candidates oder author stehen.
+        - Bevorzuge für author einen Namen, der typografisch als Autorenzeile direkt oberhalb oder nahe beim Titel steht.
+        - Namen aus Rezensionen, Zitaten, Presseangaben oder Empfehlungen dürfen in author_candidates stehen, aber NICHT als author gewählt werden. Warnsignale sind Anführungszeichen sowie Zusätze wie Zeitung, Magazin, Daily Mail, Sunday Times, New York Times o. Ä.
+        - Wenn mehrere Namen sichtbar sind und ihre Rolle unklar ist, setze author auf den plausibelsten sichtbaren Kandidaten oder leer; erfinde niemals eine weitere Alternative.
         - language bezeichnet nur die Sprache des sichtbaren Titels/Textes auf dem fotografierten Buch, nicht die vermutete Originalsprache des Werks.
-        - confidence liegt zwischen 0 und 1 und bewertet gemeinsam die Sicherheit von Titel und Autor.
+        - confidence liegt zwischen 0 und 1 und bewertet gemeinsam die Sicherheit von Titel und author. Bei unklarem Autor muss confidence deutlich sinken.
         - Wenn kein Titel sicher lesbar ist, setze title auf einen leeren String.
     """.trimIndent()
 }
