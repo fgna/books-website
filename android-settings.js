@@ -20,7 +20,8 @@
       settings: 'Einstellungen', language: 'Sprache', source: 'Datenquelle', imported: 'Lokaler Katalog', remote: 'Remote-Synchronisation',
       importJson: 'JSON importieren', exportJson: 'JSON exportieren', useRemote: 'Remote-Daten wieder verwenden', close: 'Schließen',
       localAi: 'Android LLM Service', serviceReady: 'Modell bereit', serviceUnavailable: 'Service oder Modell nicht bereit',
-      scan: 'Buch fotografieren', openingCamera: 'Kamera wird geöffnet…', scanning: 'Buch wird lokal erkannt…', enriching: 'Metadaten werden ergänzt…',
+      scan: 'Buch fotografieren', openingCamera: 'Kamera wird geöffnet…', scanning: 'Buch wird lokal erkannt…', checking: 'Titel und Autor werden geprüft…', enriching: 'Metadaten werden ergänzt…',
+      identityReview: 'Buch identifizieren', identityHint: 'Titel oder Autor konnten nicht sicher bestätigt werden. Bitte prüfen oder korrigieren.', visibleNames: 'Auf dem Buch erkannte Namen', searchMetadata: 'Metadaten suchen',
       review: 'Erkanntes Buch prüfen', title: 'Titel', author: 'Autor', confidence: 'Sicherheit', add: 'Zur Bibliothek hinzufügen', addAnyway: 'Trotzdem hinzufügen', cancel: 'Abbrechen',
       metadata: 'Metadaten', genre: 'Genre', year: 'Erstveröffentlichung', languageValue: 'Sprache', originalLanguage: 'Originalsprache', series: 'Reihe', summary: 'Kurzbeschreibung', mainIdea: 'Kernidee', openLibrary: 'Open Library',
       duplicate: 'Ein ähnlicher Eintrag existiert bereits.', saved: 'Buch hinzugefügt.'
@@ -28,7 +29,8 @@
       settings: 'Settings', language: 'Language', source: 'Data source', imported: 'Local catalog', remote: 'Remote sync',
       importJson: 'Import JSON', exportJson: 'Export JSON', useRemote: 'Use remote data again', close: 'Close',
       localAi: 'Android LLM Service', serviceReady: 'Model ready', serviceUnavailable: 'Service or model not ready',
-      scan: 'Photograph book', openingCamera: 'Opening camera…', scanning: 'Recognizing book locally…', enriching: 'Enriching metadata…',
+      scan: 'Photograph book', openingCamera: 'Opening camera…', scanning: 'Recognizing book locally…', checking: 'Checking title and author…', enriching: 'Enriching metadata…',
+      identityReview: 'Identify book', identityHint: 'Title or author could not be confirmed reliably. Please review or correct them.', visibleNames: 'Names recognized on the book', searchMetadata: 'Find metadata',
       review: 'Review recognized book', title: 'Title', author: 'Author', confidence: 'Confidence', add: 'Add to library', addAnyway: 'Add anyway', cancel: 'Cancel',
       metadata: 'Metadata', genre: 'Genre', year: 'First published', languageValue: 'Language', originalLanguage: 'Original language', series: 'Series', summary: 'Summary', mainIdea: 'Main idea', openLibrary: 'Open Library',
       duplicate: 'A similar entry already exists.', saved: 'Book added.'
@@ -39,6 +41,11 @@
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/\"/g, '&quot;').replace(/'/g, '&#039;');
+  }
+
+  function decodePayload(base64) {
+    const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder('utf-8').decode(bytes));
   }
 
   function sheetBase(id) {
@@ -106,7 +113,7 @@
     const busy = document.createElement('div');
     busy.id = 'android-book-busy';
     busy.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(248,246,241,.94);display:grid;place-items:center;padding:30px;text-align:center;font-family:var(--serif);font-size:18px;color:var(--ink);';
-    busy.innerHTML = `<div><div style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px">Gemma</div>${escapeHtml(text)}</div>`;
+    busy.innerHTML = `<div><div style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px">Local AI</div>${escapeHtml(text)}</div>`;
     document.body.appendChild(busy);
   }
 
@@ -135,6 +142,55 @@
       console.error('Camera launch failed', e);
       openSettings();
     }
+  }
+
+  function openIdentityReview(result) {
+    const L = labels();
+    const old = document.getElementById('android-book-identity');
+    if (old) old.remove();
+    const { overlay, sheet } = sheetBase('android-book-identity');
+    const candidates = Array.isArray(result._author_candidates) ? result._author_candidates.filter(Boolean) : [];
+    const confidence = Math.round((Number(result.confidence) || 0) * 100);
+
+    sheet.innerHTML = `
+      <div class="display" style="font-size:24px;margin-bottom:10px">${L.identityReview}</div>
+      <div style="font-family:var(--serif);font-size:14px;line-height:1.45;color:var(--ink-2);margin-bottom:18px">${L.identityHint}</div>
+      <label style="display:block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin-bottom:6px">${L.title}</label>
+      <input id="android-identity-title" value="${escapeHtml(result.title || '')}" style="box-sizing:border-box;width:100%;border:1px solid var(--rule);background:transparent;padding:12px;font-family:var(--serif);font-size:17px;margin-bottom:15px;color:var(--ink)" />
+      <label style="display:block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin-bottom:6px">${L.author}</label>
+      <input id="android-identity-author" value="${escapeHtml(result.author || '')}" style="box-sizing:border-box;width:100%;border:1px solid var(--rule);background:transparent;padding:12px;font-family:var(--serif);font-size:17px;margin-bottom:10px;color:var(--ink)" />
+      ${candidates.length ? `<div style="font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-3);margin:4px 0 5px">${L.visibleNames}</div><div id="android-visible-names" style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px">${candidates.map(name => `<button type="button" data-author="${escapeHtml(name)}" style="border:1px solid var(--rule);padding:7px 9px;font-family:var(--serif);font-size:13px">${escapeHtml(name)}</button>`).join('')}</div>` : ''}
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-3);margin-bottom:18px">${L.confidence}: ${confidence}%</div>
+      <button id="android-search-metadata" style="width:100%;border-top:1px solid var(--ink);padding:15px 2px;text-align:left;font-family:var(--sans);font-size:15px;color:var(--oxblood)">${L.searchMetadata}</button>
+      <button id="android-identity-cancel" style="width:100%;border-top:1px solid var(--rule);padding:15px 2px;text-align:left;font-family:var(--sans);font-size:15px">${L.cancel}</button>
+    `;
+
+    const titleInput = sheet.querySelector('#android-identity-title');
+    const authorInput = sheet.querySelector('#android-identity-author');
+    sheet.querySelectorAll('[data-author]').forEach(button => {
+      button.onclick = () => { authorInput.value = button.getAttribute('data-author') || ''; };
+    });
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    sheet.querySelector('#android-identity-cancel').onclick = close;
+    sheet.querySelector('#android-search-metadata').onclick = () => {
+      const title = titleInput.value.trim();
+      const author = authorInput.value.trim();
+      if (!title) {
+        titleInput.focus();
+        return;
+      }
+      close();
+      showBusy(L.enriching);
+      try {
+        native.enrichBookMetadata(title, author);
+      } catch (e) {
+        removeBusy();
+        console.error(e);
+        alert(String(e));
+      }
+    };
   }
 
   function metadataRow(label, value) {
@@ -209,20 +265,29 @@
 
   window.__bookScanStatus = function (status) {
     if (status === 'running') showBusy(labels().scanning);
+    if (status === 'checking') showBusy(labels().checking);
     if (status === 'enriching') showBusy(labels().enriching);
+  };
+
+  window.__bookIdentityResult = function (base64, error) {
+    removeBusy();
+    if (error) { console.error(error); alert(error); return; }
+    try { openIdentityReview(decodePayload(base64)); }
+    catch (e) { console.error(e); alert(String(e)); }
+  };
+
+  window.__bookMetadataResult = function (base64, error) {
+    removeBusy();
+    if (error) { console.error(error); alert(error); return; }
+    try { openReview(decodePayload(base64)); }
+    catch (e) { console.error(e); alert(String(e)); }
   };
 
   window.__bookScanResult = function (base64, error) {
     removeBusy();
     if (error) { console.error(error); alert(error); return; }
-    try {
-      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-      const json = new TextDecoder('utf-8').decode(bytes);
-      openReview(JSON.parse(json));
-    } catch (e) {
-      console.error(e);
-      alert(String(e));
-    }
+    try { openReview(decodePayload(base64)); }
+    catch (e) { console.error(e); alert(String(e)); }
   };
 
   function attachButtons() {
