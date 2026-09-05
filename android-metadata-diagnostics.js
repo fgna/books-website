@@ -1,6 +1,9 @@
-// Android-only diagnostics for grounded metadata lookup.
+// Android-only diagnostics and resilient retries for grounded metadata lookup.
 (function () {
   if (!window.AndroidBookSource) return;
+
+  const native = window.AndroidBookSource;
+  let retryState = null;
 
   function decodePayload(base64) {
     const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
@@ -11,10 +14,51 @@
     return ((window.LIB_CONFIG && window.LIB_CONFIG.lang) || 'en') === 'de';
   }
 
+  function metadataSources(result) {
+    return result && Array.isArray(result._metadata_sources) ? result._metadata_sources : [];
+  }
+
+  function titleJoinVariants(title) {
+    const words = String(title || '').trim().split(/\s+/).filter(Boolean);
+    if (words.length < 2) return [];
+    const variants = [];
+    for (let i = words.length - 2; i >= 0; i -= 1) {
+      const copy = words.slice();
+      copy.splice(i, 2, copy[i] + copy[i + 1]);
+      const candidate = copy.join(' ');
+      if (candidate && candidate !== title && !variants.includes(candidate)) variants.push(candidate);
+    }
+    return variants;
+  }
+
+  function nextRetry(result) {
+    if (!result || metadataSources(result).length > 0) {
+      retryState = null;
+      return null;
+    }
+
+    const title = String(result.title || '').trim();
+    const author = String(result.author || '').trim();
+    if (!title || !author) return null;
+
+    if (!retryState) {
+      retryState = {
+        author,
+        variants: titleJoinVariants(title),
+      };
+    }
+
+    while (retryState.variants.length > 0) {
+      const candidate = retryState.variants.shift();
+      if (candidate) return { title: candidate, author: retryState.author };
+    }
+    retryState = null;
+    return null;
+  }
+
   function showDiagnostics(result) {
     if (!result || typeof result !== 'object') return;
-    const sources = Array.isArray(result._metadata_sources) ? result._metadata_sources : [];
-    if (sources.length > 0) return;
+    if (metadataSources(result).length > 0) return;
 
     const diagnostics = result._metadata_diagnostics || {};
     const openLibrary = String(diagnostics.open_library || 'unknown');
@@ -43,8 +87,8 @@
 
     const title = german() ? 'Keine Online-Metadaten gefunden' : 'No online metadata found';
     const hint = german()
-      ? 'Bitte diese Diagnose für den nächsten Test notieren:'
-      : 'Please note this diagnostic for the next test:';
+      ? 'Automatische Titelvarianten wurden ebenfalls geprüft. Diagnose:'
+      : 'Automatic title variants were also checked. Diagnostic:';
 
     box.innerHTML = `
       <div style="font-family:var(--sans);font-weight:600;margin-bottom:5px;color:var(--oxblood)">${title}</div>
@@ -65,18 +109,37 @@
       .replace(/'/g, '&#039;');
   }
 
-  function wrap(name) {
+  function wrap(name, allowRetry) {
     const original = window[name];
     if (typeof original !== 'function') return;
     window[name] = function (base64, error) {
       if (!error && base64) {
-        try { showDiagnostics(decodePayload(base64)); }
-        catch (e) { console.error('Metadata diagnostic decode failed', e); }
+        try {
+          const result = decodePayload(base64);
+          if (allowRetry) {
+            const retry = nextRetry(result);
+            if (retry) {
+              try {
+                native.enrichBookMetadata(retry.title, retry.author);
+                return;
+              } catch (e) {
+                console.error('Metadata title-variant retry failed', e);
+                retryState = null;
+              }
+            }
+          }
+          showDiagnostics(result);
+        } catch (e) {
+          retryState = null;
+          console.error('Metadata diagnostic decode failed', e);
+        }
+      } else {
+        retryState = null;
       }
       return original.apply(this, arguments);
     };
   }
 
-  wrap('__bookMetadataResult');
-  wrap('__bookScanResult');
+  wrap('__bookMetadataResult', true);
+  wrap('__bookScanResult', false);
 })();
