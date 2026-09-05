@@ -14,29 +14,41 @@ internal object BookMetadataEnricher {
     fun enrich(
         recognized: JSONObject,
         catalogJson: String,
+        userConfirmedIdentity: Boolean = false,
     ): JSONObject {
         val recognizedTitle = recognized.getString("title").trim()
         val recognizedAuthor = recognized.optString("author", "").trim()
         val bibliographic = runCatching {
             lookupOpenLibrary(recognizedTitle, recognizedAuthor)
         }.getOrElse { JSONObject() }
+        val bibliographicMatch = bibliographic.optBoolean("trusted_match", false)
+        val identityVerified = bibliographicMatch || userConfirmedIdentity
         val canonicalTitle = bibliographic.optString("canonical_title").trim()
             .ifBlank { standardizeTitle(recognizedTitle) }
         val canonicalAuthor = bibliographic.optString("canonical_author").trim()
             .ifBlank { recognizedAuthor }
         val genres = collectExistingGenres(catalogJson)
 
-        // Metadata generation is deliberately fail-closed. A plausible-looking LLM
-        // description is worse than empty metadata when the work itself has not been
-        // confirmed by the bibliographic lookup.
-        val semantic = if (bibliographic.optBoolean("trusted_match", false)) {
-            val prompt = buildPrompt(canonicalTitle, canonicalAuthor, bibliographic, genres)
+        // Do not generate plausible-looking content from an identity that neither a
+        // bibliographic source nor the user has confirmed.
+        val semantic = if (identityVerified) {
+            val prompt = buildPrompt(
+                title = canonicalTitle,
+                author = canonicalAuthor,
+                facts = bibliographic,
+                genres = genres,
+                bibliographicMatch = bibliographicMatch,
+                userConfirmedIdentity = userConfirmedIdentity,
+            )
             parseJsonObject(LocalBookInference.enrich(prompt))
         } else {
             JSONObject()
         }
 
-        return normalizeResult(recognized, bibliographic, semantic, genres)
+        return normalizeResult(recognized, bibliographic, semantic, genres).apply {
+            put("_identity_verified", identityVerified)
+            put("_bibliographic_match", bibliographicMatch)
+        }
     }
 
     private fun lookupOpenLibrary(title: String, author: String): JSONObject {
@@ -183,47 +195,56 @@ internal object BookMetadataEnricher {
         author: String,
         facts: JSONObject,
         genres: List<String>,
-    ): String = """
-        Du ergänzt Metadaten für einen privaten Buchkatalog. Antworte ausschließlich mit genau einem JSON-Objekt ohne Markdown.
-
-        Bibliografisch bestätigtes Buch:
-        Titel: ${jsonText(title)}
-        Autor: ${jsonText(author)}
-
-        Verifizierte bibliografische Daten aus Open Library:
-        ${facts.toString()}
-
-        Erlaubte Genrewerte aus dem bestehenden Katalog:
-        ${JSONArray(genres).toString()}
-
-        Erzeuge nur diese Felder:
-        {
-          "genre": ["..."],
-          "language": "...",
-          "keywords": ["..."],
-          "summary": "...",
-          "summary_en": "... oder null",
-          "main_idea": "... oder null",
-          "main_idea_en": "... oder null",
-          "original_language": "... oder null",
-          "country_of_origin": "... oder null",
-          "period": "... oder null",
-          "mood": ["..."],
-          "series": "... oder null"
+        bibliographicMatch: Boolean,
+        userConfirmedIdentity: Boolean,
+    ): String {
+        val identitySource = when {
+            bibliographicMatch && userConfirmedIdentity -> "Titel und Autor wurden vom Nutzer bestätigt und bibliografisch abgeglichen."
+            bibliographicMatch -> "Titel und Autor wurden bibliografisch abgeglichen."
+            else -> "Titel und Autor wurden ausdrücklich vom Nutzer bestätigt; es liegt kein belastbarer Open-Library-Treffer vor."
         }
+        return """
+            Du ergänzt Metadaten für einen privaten Buchkatalog. Antworte ausschließlich mit genau einem JSON-Objekt ohne Markdown.
 
-        Regeln:
-        - Titel und Autor oben sind bibliografisch bestätigt und verbindlich.
-        - Erzeuge niemals Inhalte über eine andere Person oder ein anderes Werk.
-        - Nutze die verifizierten Fakten als harte Plausibilitätsgrenze.
-        - Wenn Inhalt oder Klassifikation nicht sicher bekannt sind, lasse das Feld leer/null/[].
-        - Inhaltswerte sind auf Deutsch. summary ist eine knappe Beschreibung in 2 bis 4 Sätzen.
-        - summary_en und main_idea_en enthalten eine englische Übersetzung, sofern der deutsche Wert vorhanden ist.
-        - genre darf ausschließlich Werte aus der erlaubten Liste verwenden. Nimm höchstens 3 passende Werte.
-        - keywords und mood sollen kurz und nützlich sein, jeweils höchstens 6 Werte.
-        - language bezeichnet die Sprache der fotografierten Ausgabe. Wenn sie nicht sicher ableitbar ist, verwende einen leeren String.
-        - read und rating werden ausdrücklich nicht erzeugt.
-    """.trimIndent()
+            Bestätigtes Buch:
+            Titel: ${jsonText(title)}
+            Autor: ${jsonText(author)}
+            Identitätsquelle: $identitySource
+
+            Verfügbare bibliografische Daten aus Open Library:
+            ${facts.toString()}
+
+            Erlaubte Genrewerte aus dem bestehenden Katalog:
+            ${JSONArray(genres).toString()}
+
+            Erzeuge nur diese Felder:
+            {
+              "genre": ["..."],
+              "language": "...",
+              "keywords": ["..."],
+              "summary": "...",
+              "summary_en": "... oder null",
+              "main_idea": "... oder null",
+              "main_idea_en": "... oder null",
+              "original_language": "... oder null",
+              "country_of_origin": "... oder null",
+              "period": "... oder null",
+              "mood": ["..."],
+              "series": "... oder null"
+            }
+
+            Regeln:
+            - Titel und Autor oben sind verbindlich. Erzeuge niemals Inhalte über eine andere Person oder ein anderes Werk.
+            - Open-Library-Fakten sind, sofern vorhanden, harte Plausibilitätsgrenzen.
+            - Wenn kein bibliografischer Treffer vorliegt, erfinde keine spezifischen Werkdetails. Nutze nur Wissen, bei dem du für genau diesen Titel und Autor sehr sicher bist; sonst null/[]/leerer String.
+            - Inhaltswerte sind auf Deutsch. summary ist eine knappe Beschreibung in 2 bis 4 Sätzen.
+            - summary_en und main_idea_en enthalten eine englische Übersetzung, sofern der deutsche Wert vorhanden ist.
+            - genre darf ausschließlich Werte aus der erlaubten Liste verwenden. Nimm höchstens 3 passende Werte.
+            - keywords und mood sollen kurz und nützlich sein, jeweils höchstens 6 Werte.
+            - language bezeichnet die Sprache der fotografierten Ausgabe. Wenn sie nicht sicher ableitbar ist, verwende einen leeren String.
+            - read und rating werden ausdrücklich nicht erzeugt.
+        """.trimIndent()
+    }
 
     private fun normalizeResult(
         recognized: JSONObject,
