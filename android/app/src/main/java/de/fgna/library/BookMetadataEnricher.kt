@@ -17,24 +17,26 @@ internal object BookMetadataEnricher {
         userConfirmedIdentity: Boolean = false,
     ): JSONObject {
         val recognizedTitle = recognized.getString("title").trim()
+        val candidates = visibleAuthorCandidates(recognized)
         val recognizedAuthor = recognized.optString("author", "").trim()
+            .takeIf { author -> candidates.any { sameName(it, author) } }
+            ?: candidates.firstOrNull().orEmpty()
+
         val bibliographic = runCatching {
-            lookupOpenLibrary(recognizedTitle, recognizedAuthor)
+            lookupOpenLibrary(recognizedTitle, candidates)
         }.getOrElse { JSONObject() }
         val bibliographicMatch = bibliographic.optBoolean("trusted_match", false)
         val identityVerified = bibliographicMatch || userConfirmedIdentity
         val canonicalTitle = bibliographic.optString("canonical_title").trim()
             .ifBlank { standardizeTitle(recognizedTitle) }
-        val canonicalAuthor = bibliographic.optString("canonical_author").trim()
+        val selectedAuthor = bibliographic.optString("selected_visible_author").trim()
             .ifBlank { recognizedAuthor }
         val genres = collectExistingGenres(catalogJson)
 
-        // Do not generate plausible-looking content from an identity that neither a
-        // bibliographic source nor the user has confirmed.
         val semantic = if (identityVerified) {
             val prompt = buildPrompt(
                 title = canonicalTitle,
-                author = canonicalAuthor,
+                author = selectedAuthor,
                 facts = bibliographic,
                 genres = genres,
                 bibliographicMatch = bibliographicMatch,
@@ -48,33 +50,53 @@ internal object BookMetadataEnricher {
         return normalizeResult(recognized, bibliographic, semantic, genres).apply {
             put("_identity_verified", identityVerified)
             put("_bibliographic_match", bibliographicMatch)
+            put("_author_candidates", JSONArray(candidates))
         }
     }
 
-    private fun lookupOpenLibrary(title: String, author: String): JSONObject {
-        val withAuthor = if (author.isNotBlank()) searchOpenLibrary(title, author) else JSONArray()
-        var match = selectMatch(withAuthor, title, author, requireAuthorMatch = author.isNotBlank())
-
-        // Cover recognition can mistake reviewers, endorsers or quoted people for the
-        // author. If the recognized pair cannot be confirmed, retry by title only and
-        // use the canonical author from the bibliographic result.
-        if (match == null) {
-            match = selectMatch(searchOpenLibrary(title, ""), title, author, requireAuthorMatch = false)
+    private fun lookupOpenLibrary(title: String, visibleCandidates: List<String>): JSONObject {
+        // First try every name that was actually visible on the book. The external
+        // source may select among those names, but may never introduce a new author.
+        for (candidate in visibleCandidates) {
+            val match = selectMatch(
+                docs = searchOpenLibrary(title, candidate),
+                title = title,
+                author = candidate,
+                requireAuthorMatch = true,
+            )
+            if (match != null) return factsForMatch(match, title, candidate)
         }
-        if (match == null) return JSONObject()
 
-        val facts = JSONObject().put("trusted_match", true)
+        // If several names were visible, title-only search can still determine which
+        // visible candidate belongs to the matched work. A canonical author that was
+        // not visible is deliberately ignored.
+        val titleMatches = searchOpenLibrary(title, "")
+        for (i in 0 until titleMatches.length()) {
+            val doc = titleMatches.optJSONObject(i) ?: continue
+            if (!strongTitleMatch(title, doc.optString("title"))) continue
+            for (candidate in visibleCandidates) {
+                if (authorsMatch(candidate, doc.optJSONArray("author_name"))) {
+                    return factsForMatch(doc, title, candidate)
+                }
+            }
+        }
+        return JSONObject()
+    }
+
+    private fun factsForMatch(match: JSONObject, scannedTitle: String, visibleAuthor: String): JSONObject {
+        val facts = JSONObject()
+            .put("trusted_match", true)
+            .put("selected_visible_author", visibleAuthor)
+
         val canonicalTitle = match.optString("title").trim()
         if (canonicalTitle.isNotBlank()) facts.put("canonical_title", canonicalTitle)
-        val authorNames = match.optJSONArray("author_name") ?: JSONArray()
-        firstNonBlank(authorNames)?.let { facts.put("canonical_author", it) }
 
         val key = match.optString("key")
         val workId = if (key.startsWith("/works/")) key.removePrefix("/works/") else ""
         if (workId.isNotBlank()) facts.put("openlibrary_work_id", workId)
         if (match.has("first_publish_year")) facts.put("year_published", match.optInt("first_publish_year"))
         facts.put("openlibrary_title", canonicalTitle)
-        facts.put("openlibrary_authors", authorNames)
+        facts.put("openlibrary_authors", match.optJSONArray("author_name") ?: JSONArray())
         facts.put("openlibrary_languages", match.optJSONArray("language") ?: JSONArray())
         facts.put("openlibrary_subjects", match.optJSONArray("subject") ?: JSONArray())
 
@@ -82,7 +104,7 @@ internal object BookMetadataEnricher {
             val work = runCatching { getJson("https://openlibrary.org/works/$workId.json") }.getOrNull()
             if (work != null) {
                 val originalTitle = work.optString("original_title").trim()
-                if (originalTitle.isNotBlank() && !strongTitleMatch(canonicalTitle.ifBlank { title }, originalTitle)) {
+                if (originalTitle.isNotBlank() && !strongTitleMatch(canonicalTitle.ifBlank { scannedTitle }, originalTitle)) {
                     facts.put("original_title", originalTitle)
                 }
                 val description = when (val raw = work.opt("description")) {
@@ -104,6 +126,20 @@ internal object BookMetadataEnricher {
             }
         }
         return facts
+    }
+
+    private fun visibleAuthorCandidates(recognized: JSONObject): List<String> {
+        val values = linkedSetOf<String>()
+        val array = recognized.optJSONArray("author_candidates")
+        if (array != null) {
+            for (i in 0 until array.length()) {
+                val value = array.optString(i).trim()
+                if (value.isNotBlank()) values += value
+            }
+        }
+        val author = recognized.optString("author", "").trim()
+        if (author.isNotBlank() && values.none { sameName(it, author) }) values += author
+        return values.toList()
     }
 
     private fun searchOpenLibrary(title: String, author: String): JSONArray {
@@ -129,13 +165,10 @@ internal object BookMetadataEnricher {
         var bestScore = -1
         for (i in 0 until docs.length()) {
             val doc = docs.optJSONObject(i) ?: continue
-            val candidateTitle = doc.optString("title").trim()
-            val titleScore = titleMatchScore(title, candidateTitle)
+            val titleScore = titleMatchScore(title, doc.optString("title"))
             if (titleScore < 0) continue
-
             val authorMatches = authorsMatch(author, doc.optJSONArray("author_name"))
             if (requireAuthorMatch && !authorMatches) continue
-
             val score = titleScore + if (authorMatches) 10 else 0
             if (score > bestScore) {
                 best = doc
@@ -151,8 +184,6 @@ internal object BookMetadataEnricher {
         if (left.isBlank() || right.isBlank()) return -1
         if (left == right) return 4
         if (compact(left) == compact(right)) return 3
-
-        // Accept a bibliographic subtitle but not arbitrary substring matches.
         val leftBase = normalize(baseTitle(a))
         val rightBase = normalize(baseTitle(b))
         if (leftBase.isNotBlank() && leftBase == rightBase) return 2
@@ -170,24 +201,18 @@ internal object BookMetadataEnricher {
 
     private fun compact(value: String): String = value.replace(" ", "")
 
-    private fun authorsMatch(author: String, names: JSONArray?): Boolean {
-        if (author.isBlank() || names == null) return false
-        val expected = normalize(author)
-        if (expected.isBlank()) return false
-        for (i in 0 until names.length()) {
-            val candidate = normalize(names.optString(i))
-            if (candidate.isBlank()) continue
-            if (candidate == expected || compact(candidate) == compact(expected)) return true
-        }
-        return false
+    private fun sameName(a: String, b: String): Boolean {
+        val left = normalize(a)
+        val right = normalize(b)
+        return left.isNotBlank() && (left == right || compact(left) == compact(right))
     }
 
-    private fun firstNonBlank(values: JSONArray): String? {
-        for (i in 0 until values.length()) {
-            val value = values.optString(i).trim()
-            if (value.isNotBlank()) return value
+    private fun authorsMatch(author: String, names: JSONArray?): Boolean {
+        if (author.isBlank() || names == null) return false
+        for (i in 0 until names.length()) {
+            if (sameName(author, names.optString(i))) return true
         }
-        return null
+        return false
     }
 
     private fun buildPrompt(
@@ -199,8 +224,8 @@ internal object BookMetadataEnricher {
         userConfirmedIdentity: Boolean,
     ): String {
         val identitySource = when {
-            bibliographicMatch && userConfirmedIdentity -> "Titel und Autor wurden vom Nutzer bestätigt und bibliografisch abgeglichen."
-            bibliographicMatch -> "Titel und Autor wurden bibliografisch abgeglichen."
+            bibliographicMatch && userConfirmedIdentity -> "Titel und sichtbarer Autor wurden vom Nutzer bestätigt und bibliografisch abgeglichen."
+            bibliographicMatch -> "Titel und sichtbarer Autor wurden bibliografisch abgeglichen."
             else -> "Titel und Autor wurden ausdrücklich vom Nutzer bestätigt; es liegt kein belastbarer Open-Library-Treffer vor."
         }
         return """
@@ -254,14 +279,17 @@ internal object BookMetadataEnricher {
     ): JSONObject {
         val result = JSONObject()
         val recognizedTitle = recognized.getString("title").trim()
+        val candidates = visibleAuthorCandidates(recognized)
         val recognizedAuthor = recognized.optString("author", "").trim()
+            .takeIf { author -> candidates.any { sameName(it, author) } }
+            ?: candidates.firstOrNull().orEmpty()
         val canonicalTitle = facts.optString("canonical_title").trim()
             .ifBlank { standardizeTitle(recognizedTitle) }
-        val canonicalAuthor = facts.optString("canonical_author").trim()
+        val selectedAuthor = facts.optString("selected_visible_author").trim()
             .ifBlank { recognizedAuthor }
 
         result.put("title", canonicalTitle)
-        result.put("author", canonicalAuthor)
+        result.put("author", selectedAuthor)
         result.put("confidence", recognized.optDouble("confidence", 0.0).coerceIn(0.0, 1.0))
 
         putNullable(result, "original_title", facts.opt("original_title"))
@@ -272,11 +300,8 @@ internal object BookMetadataEnricher {
         result.put("summary", semantic.optString("summary", "").trim())
         putNullable(result, "summary_en", semantic.opt("summary_en"))
         result.put("read", JSONObject.NULL)
-        if (facts.has("year_published") && facts.optInt("year_published") > 0) {
-            result.put("year_published", facts.optInt("year_published"))
-        } else {
-            result.put("year_published", JSONObject.NULL)
-        }
+        if (facts.has("year_published") && facts.optInt("year_published") > 0) result.put("year_published", facts.optInt("year_published"))
+        else result.put("year_published", JSONObject.NULL)
         putNullable(result, "main_idea", semantic.opt("main_idea"))
         putNullable(result, "main_idea_en", semantic.opt("main_idea_en"))
         putNullable(result, "openlibrary_work_id", facts.opt("openlibrary_work_id"))
@@ -312,11 +337,7 @@ internal object BookMetadataEnricher {
             }
         }
         if (values.isEmpty()) {
-            values += listOf(
-                "Belletristik", "Roman", "Klassiker", "Krimi", "Thriller",
-                "Science-Fiction", "Fantasy", "Philosophie", "Psychologie",
-                "Wissenschaft", "Geschichte", "Biografie", "Sachbuch", "Kunst", "Wirtschaft"
-            )
+            values += listOf("Belletristik", "Roman", "Klassiker", "Krimi", "Thriller", "Science-Fiction", "Fantasy", "Philosophie", "Psychologie", "Wissenschaft", "Geschichte", "Biografie", "Sachbuch", "Kunst", "Wirtschaft")
         }
         return values.toList().sorted()
     }
@@ -380,7 +401,6 @@ internal object BookMetadataEnricher {
     }
 
     private fun enc(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())
-
     private fun jsonText(value: String): String = JSONObject.quote(value)
 
     private fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFD)
